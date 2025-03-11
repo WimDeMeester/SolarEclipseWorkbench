@@ -24,6 +24,7 @@ timezonefinder = "^6.2.0"
 astronomy-engine = "^2.1.19"
 playsound = {git = "https://github.com/taconi/playsound.git"}
 pyqt6 = "^6.6.1"
+astronomy = "^0.0.1"
 
 
 [build-system]
