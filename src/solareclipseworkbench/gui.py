@@ -643,34 +643,47 @@ class SolarEclipseView(QMainWindow, Observable):
         self.time_label_local.setText(format_time(current_time_local, self.time_format))
         self.time_label_utc.setText(format_time(current_time_utc, self.time_format))
 
-        if countdown_c1:
-            self.c1_countdown_label.setText(str(format_countdown(countdown_c1)))
+        if not countdown_c1 or countdown_c1.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.c1_countdown_label.setText("")
-        if countdown_c2:
-            self.c2_countdown_label.setText(str(format_countdown(countdown_c2)))
+            label_text = str(format_countdown(countdown_c1))
+        self.c1_countdown_label.setText(label_text)
+
+        if not countdown_c2 or countdown_c2.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.c2_countdown_label.setText("")
-        if countdown_max:
-            self.max_countdown_label.setText(str(format_countdown(countdown_max)))
+            label_text = str(format_countdown(countdown_c2))
+        self.c2_countdown_label.setText(label_text)
+
+        if not countdown_max or countdown_max.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.max_countdown_label.setText("")
-        if countdown_c3:
-            self.c3_countdown_label.setText(str(format_countdown(countdown_c3)))
+            label_text = str(format_countdown(countdown_max))
+        self.max_countdown_label.setText(label_text)
+
+        if not countdown_c3 or countdown_c3.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.c3_countdown_label.setText("")
-        if countdown_c4:
-            self.c4_countdown_label.setText(str(format_countdown(countdown_c4)))
+            label_text = str(format_countdown(countdown_c3))
+        self.c3_countdown_label.setText(label_text)
+
+        if not countdown_c4 or countdown_c4.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.c4_countdown_label.setText("")
-        if countdown_sunrise:
-            self.sunrise_countdown_label.setText(str(format_countdown(countdown_sunrise)))
+            label_text = str(format_countdown(countdown_c4))
+        self.c4_countdown_label.setText(label_text)
+
+        if not countdown_sunrise or countdown_sunrise.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.sunrise_countdown_label.setText("")
-        if countdown_sunset:
-            self.sunset_countdown_label.setText(str(format_countdown(countdown_sunset)))
+            label_text = str(format_countdown(countdown_sunrise))
+        self.sunrise_countdown_label.setText(label_text)
+
+        if not countdown_sunset or countdown_sunset.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.sunset_countdown_label.setText("")
+            label_text = str(format_countdown(countdown_sunset))
+        self.sunset_countdown_label.setText(label_text)
 
     def show_reference_moments(self, reference_moments: dict, magnitude: float, eclipse_type: str):
         """ Display the given reference moments, magnitude, and eclipse type.
