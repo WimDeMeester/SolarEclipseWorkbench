@@ -9,10 +9,9 @@ Reference moments of a solar eclipse:
 """
 from datetime import datetime
 
-import astronomy
 import astropy.units as u
 import pytz
-from astronomy import SearchLocalSolarEclipse, LocalSolarEclipseInfo
+from astronomy import astronomy, LocalSolarEclipseInfo, SearchLocalSolarEclipse
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from skyfield import almanac
