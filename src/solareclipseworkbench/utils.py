@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 
-import astronomy
+from astronomy import astronomy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
