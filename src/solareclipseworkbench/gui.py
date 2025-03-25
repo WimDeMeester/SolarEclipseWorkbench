@@ -283,44 +283,80 @@ class SolarEclipseView(QMainWindow, Observable):
         self.eclipse_date = QLabel("")
 
         self.reference_moments_widget = QWidget()
-        self.c1_time_local_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c2_time_local_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.max_time_local_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c3_time_local_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c4_time_local_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.sunrise_time_local_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.sunset_time_local_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c1_time_utc_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c2_time_utc_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.max_time_utc_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c3_time_utc_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c4_time_utc_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.sunrise_time_utc_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.sunset_time_utc_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c1_countdown_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c2_countdown_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.max_countdown_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c3_countdown_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c4_countdown_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.sunrise_countdown_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.sunset_countdown_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c1_azimuth_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c2_azimuth_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.max_azimuth_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c3_azimuth_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c4_azimuth_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c1_altitude_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c2_altitude_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.max_altitude_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c3_altitude_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.c4_altitude_label = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
+
+        self.c1_time_local_label = QLabel()
+        self.c1_time_local_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c2_time_local_label = QLabel()
+        self.c2_time_local_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.max_time_local_label = QLabel()
+        self.max_time_local_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c3_time_local_label = QLabel()
+        self.c3_time_local_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c4_time_local_label = QLabel()
+        self.c4_time_local_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.sunrise_time_local_label = QLabel()
+        self.sunrise_time_local_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.sunset_time_local_label = QLabel()
+        self.sunset_time_local_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c1_time_utc_label = QLabel()
+        self.c1_time_utc_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c2_time_utc_label = QLabel()
+        self.c2_time_utc_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.max_time_utc_label = QLabel()
+        self.max_time_utc_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c3_time_utc_label = QLabel()
+        self.c3_time_utc_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c4_time_utc_label = QLabel()
+        self.c4_time_utc_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.sunrise_time_utc_label = QLabel()
+        self.sunrise_time_utc_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.sunset_time_utc_label = QLabel()
+        self.sunset_time_utc_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c1_countdown_label = QLabel()
+        self.c1_countdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c2_countdown_label = QLabel()
+        self.c2_countdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.max_countdown_label = QLabel()
+        self.max_countdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c3_countdown_label = QLabel()
+        self.c3_countdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c4_countdown_label = QLabel()
+        self.c4_countdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.sunrise_countdown_label = QLabel()
+        self.sunrise_countdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.sunset_countdown_label = QLabel()
+        self.sunset_countdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c1_azimuth_label = QLabel()
+        self.c1_azimuth_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c2_azimuth_label = QLabel()
+        self.c2_azimuth_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.max_azimuth_label = QLabel()
+        self.max_azimuth_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c3_azimuth_label = QLabel()
+        self.c3_azimuth_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c4_azimuth_label = QLabel()
+        self.c4_azimuth_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c1_altitude_label = QLabel()
+        self.c1_altitude_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c2_altitude_label = QLabel()
+        self.c2_altitude_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.max_altitude_label = QLabel()
+        self.max_altitude_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c3_altitude_label = QLabel()
+        self.c3_altitude_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.c4_altitude_label = QLabel()
+        self.c4_altitude_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.date_label = QLabel(f"Date [{self.date_format}]")
-        self.date_label_local = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.time_label_local = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
+        self.date_label_local = QLabel()
+        self.date_label_local.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.time_label_local = QLabel()
         self.time_label_local.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.date_label_utc = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
-        self.time_label_utc = QLabel(alignment=Qt.AlignmentFlag.AlignRight)
+        self.time_label_local.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.date_label_utc = QLabel()
+        self.date_label_utc.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.time_label_utc = QLabel()
+        self.time_label_utc.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.longitude_label = QLabel()
         self.longitude_label.setToolTip(
@@ -607,34 +643,47 @@ class SolarEclipseView(QMainWindow, Observable):
         self.time_label_local.setText(format_time(current_time_local, self.time_format))
         self.time_label_utc.setText(format_time(current_time_utc, self.time_format))
 
-        if countdown_c1:
-            self.c1_countdown_label.setText(str(format_countdown(countdown_c1)))
+        if not countdown_c1 or countdown_c1.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.c1_countdown_label.setText("")
-        if countdown_c2:
-            self.c2_countdown_label.setText(str(format_countdown(countdown_c2)))
+            label_text = str(format_countdown(countdown_c1))
+        self.c1_countdown_label.setText(label_text)
+
+        if not countdown_c2 or countdown_c2.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.c2_countdown_label.setText("")
-        if countdown_max:
-            self.max_countdown_label.setText(str(format_countdown(countdown_max)))
+            label_text = str(format_countdown(countdown_c2))
+        self.c2_countdown_label.setText(label_text)
+
+        if not countdown_max or countdown_max.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.max_countdown_label.setText("")
-        if countdown_c3:
-            self.c3_countdown_label.setText(str(format_countdown(countdown_c3)))
+            label_text = str(format_countdown(countdown_max))
+        self.max_countdown_label.setText(label_text)
+
+        if not countdown_c3 or countdown_c3.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.c3_countdown_label.setText("")
-        if countdown_c4:
-            self.c4_countdown_label.setText(str(format_countdown(countdown_c4)))
+            label_text = str(format_countdown(countdown_c3))
+        self.c3_countdown_label.setText(label_text)
+
+        if not countdown_c4 or countdown_c4.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.c4_countdown_label.setText("")
-        if countdown_sunrise:
-            self.sunrise_countdown_label.setText(str(format_countdown(countdown_sunrise)))
+            label_text = str(format_countdown(countdown_c4))
+        self.c4_countdown_label.setText(label_text)
+
+        if not countdown_sunrise or countdown_sunrise.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.sunrise_countdown_label.setText("")
-        if countdown_sunset:
-            self.sunset_countdown_label.setText(str(format_countdown(countdown_sunset)))
+            label_text = str(format_countdown(countdown_sunrise))
+        self.sunrise_countdown_label.setText(label_text)
+
+        if not countdown_sunset or countdown_sunset.total_seconds() <= 0:
+            label_text = "-"
         else:
-            self.sunset_countdown_label.setText("")
+            label_text = str(format_countdown(countdown_sunset))
+        self.sunset_countdown_label.setText(label_text)
 
     def show_reference_moments(self, reference_moments: dict, magnitude: float, eclipse_type: str):
         """ Display the given reference moments, magnitude, and eclipse type.

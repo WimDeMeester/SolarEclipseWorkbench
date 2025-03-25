@@ -2,6 +2,7 @@ from enum import Enum
 from pathlib import Path
 from playsound import playsound
 
+SOUND_PATH = Path(__file__).parent.resolve() / ".." / ".." / "sound"
 
 class Notifications(str, Enum):
     """ Enumeration of notifications that will be used for the voice prompt."""
@@ -90,7 +91,7 @@ def voice_prompt(notification: str) -> None:
     Args:
         - notification: Notification
     """
-    SOUND_PATH = Path(__file__).parent.resolve() / ".." / ".." / "sound"
+
     playsound(str(SOUND_PATH) + "/" + Notifications[notification.lstrip()].value)
 
 
