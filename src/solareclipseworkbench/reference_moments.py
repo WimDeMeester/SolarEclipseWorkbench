@@ -67,8 +67,8 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
 
     location = EarthLocation(lat=latitude * u.deg, lon=longitude * u.deg, height=altitude * u.m)
 
-    astronomy_time = astronomy.Time.Parse(time.isot + 'Z')
-    observer = astronomy.Observer(latitude, longitude)
+    astronomy_time = astronomy.astronomy.Time.Parse(time.isot + 'Z')
+    observer = astronomy.astronomy.Observer(latitude, longitude)
     start_time = astronomy_time
 
     eclipse: LocalSolarEclipseInfo = SearchLocalSolarEclipse(start_time, observer)
