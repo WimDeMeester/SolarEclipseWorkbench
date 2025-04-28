@@ -166,20 +166,23 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
 
     func = COMMANDS[func_name]
 
-    reference_moment = reference_moments[ref_moment].time_utc
-    delta = timedelta(hours=float(hours), minutes=float(minutes), seconds=float(seconds))
+    try:
+        reference_moment = reference_moments[ref_moment].time_utc
+        delta = timedelta(hours=float(hours), minutes=float(minutes), seconds=float(seconds))
 
-    if sign == "+":
-        execution_time = reference_moment + delta
-    else:
-        execution_time = reference_moment - delta
+        if sign == "+":
+            execution_time = reference_moment + delta
+        else:
+            execution_time = reference_moment - delta
 
-    if reference_moment_for_simulation:
-        diff = reference_moments[reference_moment_for_simulation.upper()].time_utc - simulated_start
-        execution_time = execution_time - diff
+        if reference_moment_for_simulation:
+            diff = reference_moments[reference_moment_for_simulation.upper()].time_utc - simulated_start
+            execution_time = execution_time - diff
 
-    trigger = CronTrigger(year=execution_time.year, month=execution_time.month, day=execution_time.day,
-                          hour=execution_time.hour, minute=execution_time.minute,
-                          second=execution_time.second, timezone=pytz.utc)
+        trigger = CronTrigger(year=execution_time.year, month=execution_time.month, day=execution_time.day,
+                              hour=execution_time.hour, minute=execution_time.minute,
+                              second=execution_time.second, timezone=pytz.utc)
 
-    scheduler.add_job(func, trigger=trigger, args=args, name=description)
+        scheduler.add_job(func, trigger=trigger, args=args, name=description)
+    except KeyError:
+        return
