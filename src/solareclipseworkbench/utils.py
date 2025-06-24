@@ -99,7 +99,7 @@ def schedule_commands(filename: str, scheduler: BackgroundScheduler, reference_m
         - cameras: Dictionary of camera names and camera objects
         - controller: Controller of the Solar Eclipse Workbench UI
         - reference_moment: Reference moment to use for the simulation.  Possible values are C1, C2, C3, C4, sunrise,
-                            sunset, and MAX. None if no simulation should be used.
+                            sunset, LAST and MAX. None if no simulation should be used.
         - simulated_start: datetime with the time to simulate relative to the reference moment.
                             None if no simulation is to be used.
 
@@ -126,7 +126,7 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
         - cameras: Dictionary of camera names and camera objects
         - controller: Controller of the Solar Eclipse Workbench UI
         - reference_moment_for_simulation: Reference moment to use for the simulation.  Possible values are C1, C2, C3,
-                            C4, sunrise, sunset, and MAX. None if no simulation should be used.
+                            C4, sunrise, sunset, LAST and MAX. None if no simulation should be used.
         - simulated_start: datetime with the time to simulate relative to the reference moment.
                             None if no simulation is to be used.
     """
@@ -134,6 +134,13 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
     cmd_str_split = cmd_str.split(",")
     func_name = cmd_str_split[0].lstrip()
     ref_moment = cmd_str_split[1].lstrip()
+
+    if ref_moment.upper() == "SUNRISE":
+        ref_moment = "sunrise"
+
+    if ref_moment.upper() == "SUNSET":
+        ref_moment = "sunset"
+
     sign = cmd_str_split[2].lstrip()    # + or -
     hours, minutes, seconds = cmd_str_split[3].lstrip().split(":")   # hh:mm:ss.ss
     description = cmd_str_split[-1].lstrip()
@@ -167,7 +174,16 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
     func = COMMANDS[func_name]
 
     try:
-        reference_moment = reference_moments[ref_moment].time_utc
+        if ref_moment == "LAST":
+            # Get last job from scheduler
+            last_job = scheduler.get_jobs()[-1]
+
+            # Get the last job's time
+            reference_moment = last_job.next_run_time.astimezone(pytz.utc)
+        else:
+            reference_moment = reference_moments[ref_moment].time_utc
+
+
         delta = timedelta(hours=float(hours), minutes=float(minutes), seconds=float(seconds))
 
         if sign == "+":
