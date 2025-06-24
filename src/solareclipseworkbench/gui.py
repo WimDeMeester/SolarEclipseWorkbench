@@ -56,6 +56,7 @@ BEFORE_AFTER = {
 REFERENCE_MOMENTS = ["C1", "C2", "MAX", "C3", "C4", "sunset", "sunrise"]
 
 LOGGER = logging.getLogger("Solar Eclipse Workbench UI")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S', filename="/tmp/solareclipseworkbench.log", filemode='w')
 
 
 class SolarEclipseModel:
