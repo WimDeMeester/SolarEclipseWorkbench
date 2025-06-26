@@ -1,4 +1,5 @@
 import io
+import logging
 from datetime import datetime, timedelta
 
 def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_file) -> io.StringIO:
@@ -32,6 +33,9 @@ def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_fi
     elif command[0] == "voice_prompt":
         _, _, _, _, sound_file, comment = line.split(",")
         command = "voice_prompt"
+    elif command[0] == "command":
+        _, _, _, _, to_execute, comment = line.split(",")
+        command = "command"
     elif command[0] == "PLAY":
         _, _, _, _, sound_file, _, _, _, _, _, _, _, comment = line.split(",")
         sound_file, _ = sound_file.upper().split('.')
@@ -64,6 +68,9 @@ def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_fi
     elif command == "voice_prompt":
         output_file.write(
             f"{command}, {ref_moment}, {sign}, {time_delta}, {sound_file.strip()}, \"{comment.strip()+extra_comment}\"\n")
+    elif command == "command":
+        output_file.write(
+            f"{command}, {ref_moment}, {sign}, {time_delta}, {to_execute.strip()}, \"{comment.strip()+extra_comment}\"\n")
 
     while True:
         s = output_file.readline()
@@ -213,10 +220,13 @@ def convert_script(filename, reference_moments) -> io.StringIO:
                     print ('for loops need C1, C2, C3, C4, MAX, or END as reference moments.')
                     exit()
             else:
-                _, ref_moment, sign, delta, _ = line.split(",", 4)
-                time_delta = _get_delta_datetime(delta)
+                try:
+                    _, ref_moment, sign, delta, _ = line.split(",", 4)
+                    time_delta = _get_delta_datetime(delta)
 
-                output_file = convert_command(line, ref_moment, sign, time_delta, "", output_file)
+                    output_file = convert_command(line, ref_moment, sign, time_delta, "", output_file)
+                except ValueError:
+                    logging.info("Skipping line in script: " + line.strip())
 
     return output_file
 

@@ -364,6 +364,12 @@ This command will play the C4_IN_3_SECONDS sound file 3 seconds before fourth co
 
 ```sync_cameras, C2, -, 00:00:04, "Sync the camera status"```
 
+- **command** - Execute a command on the computer.  This can be used to execute a script or to run a program.
+
+```command, C1, -, 00:00:05, "/home/user/scripts/print_date.sh", "Print the date"```
+
+This command will execute the script `print_date.sh` 5 seconds before first contact (C1).  The script should be executable and should not require any user input.
+
 - **for** - Repeat a command a number of times
 
 ```for,C1,C4,10,-10,+10```
@@ -407,6 +413,10 @@ endfor
 ## Converting scripts from Solar Eclipse Maestro
 
 Scripts from Solar Eclipse Maestro are converted automatically to scripts that can be used by Solar Eclipse Workbench.
+
+## Error handling
+
+If something goes wrong, an error message will be logged in the log file `/tmp/solareclipseworkbench.log`.
 
 ## Image attributions
 

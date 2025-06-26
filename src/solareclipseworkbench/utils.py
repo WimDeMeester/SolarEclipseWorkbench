@@ -5,7 +5,7 @@ from astronomy import astronomy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
-from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_bracket, sync_cameras, scripts
+from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_bracket, sync_cameras, scripts, execute_command
 from solareclipseworkbench.camera import CameraSettings
 from solareclipseworkbench.gui import SolarEclipseController
 
@@ -14,7 +14,8 @@ COMMANDS = {
     'take_picture': take_picture,
     'take_burst': take_burst,
     'take_bracket': take_bracket,
-    'sync_cameras': sync_cameras
+    'sync_cameras': sync_cameras,
+    'command': execute_command
 }
 
 
@@ -130,7 +131,6 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
         - simulated_start: datetime with the time to simulate relative to the reference moment.
                             None if no simulation is to be used.
     """
-
     cmd_str_split = cmd_str.split(",")
     func_name = cmd_str_split[0].lstrip()
     ref_moment = cmd_str_split[1].lstrip()
@@ -149,7 +149,7 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
 
     args = cmd_str_split[4:-1]
 
-    if func_name != "voice_prompt":
+    if func_name != "voice_prompt" and func_name != "command":
         if cameras is not None:
             try:
                 if func_name == "take_picture":
@@ -173,13 +173,18 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
 
     func = COMMANDS[func_name]
 
+
     try:
         if ref_moment == "LAST":
-            # Get last job from scheduler
-            last_job = scheduler.get_jobs()[-1]
+            try:
+                # Get last job from scheduler
+                last_job = scheduler.get_jobs()[-1]
 
-            # Get the last job's time
-            reference_moment = last_job.next_run_time.astimezone(pytz.utc)
+                # Get the last job's time
+                reference_moment = last_job.next_run_time.astimezone(pytz.utc)
+            except AttributeError:
+                logging.error("No jobs found in the scheduler. Cannot determine LAST reference moment.")
+                return
         else:
             reference_moment = reference_moments[ref_moment].time_utc
 
