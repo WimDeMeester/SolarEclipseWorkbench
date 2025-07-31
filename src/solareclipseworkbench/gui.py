@@ -36,7 +36,7 @@ from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get
 from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 
-ICON_PATH = Path(__file__).parent.resolve() / ".." / ".." / "img"
+ICON_PATH = Path(__file__).parent.resolve() / "img"
 
 TIME_FORMATS = {
     "24 hours": "%H:%M:%S",
