@@ -1,6 +1,6 @@
 from enum import Enum
 from pathlib import Path
-from playsound import playsound
+from playsound3 import playsound
 
 SOUND_PATH = Path(__file__).parent.resolve() / "sound"
 
