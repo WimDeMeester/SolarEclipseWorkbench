@@ -35,6 +35,8 @@
     - [Installation on Ubuntu 24.04](#installation-on-ubuntu-2404-1)
     - [Installation on Windows 11](#installation-on-windows-11-1)
   - [Create and upload a new pip package](#create-and-upload-a-new-pip-package)
+  - [License](#license)
+  - [Changelog](#changelog)
   - [Image attributions](#image-attributions)
     - [GUI icons](#gui-icons)
 
@@ -523,6 +525,15 @@ To create a new pip package, execute the following commands in the Solar Eclipse
 poetry build
 poetry publish
 ```
+
+## License
+
+[GPL-3.0](LICENSE)
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes and updates to the package.
+
 
 ## Image attributions
 
