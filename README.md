@@ -1,6 +1,6 @@
 # Solar Eclipse Workbench
 
-![Solar Eclipse Workbench logo](img/logo-small.jpg)
+![Solar Eclipse Workbench logo](src/solareclipseworkbench/img/logo-small.jpg)
 
 ## Table of contents
 
@@ -10,7 +10,7 @@
   - [Table of contents](#table-of-contents)
   - [Installation instructions](#installation-instructions)
     - [Installation on macOS](#installation-on-macos)
-    - [Installation on Ubuntu 22.04](#installation-on-ubuntu-2204)
+    - [Installation on Ubuntu 24.04](#installation-on-ubuntu-2404)
     - [Installation on Windows 11](#installation-on-windows-11)
   - [Running Solar Eclipse Workbench](#running-solar-eclipse-workbench)
     - [Command line parameters](#command-line-parameters)
@@ -29,7 +29,11 @@
     - [Commands](#commands)
   - [Shortcomings](#shortcomings)
   - [Converting scripts from Solar Eclipse Maestro](#converting-scripts-from-solar-eclipse-maestro)
-    - [Known Solar Eclipse Maestro commands](#known-solar-eclipse-maestro-commands)
+  - [Error handling](#error-handling)
+  - [Development Guide](#development-guide)
+    - [Installation on macOS](#installation-on-macos-1)
+    - [Installation on Ubuntu 24.04](#installation-on-ubuntu-2404-1)
+    - [Installation on Windows 11](#installation-on-windows-11-1)
   - [Image attributions](#image-attributions)
     - [GUI icons](#gui-icons)
 
@@ -37,10 +41,10 @@
 
 ### Installation on macOS
 
-- Install poetry by executing the following line in the terminal
+- Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
-curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | python3 -
+python -m venv solareclipseworkbench
 ```
 
 - For modern Apple Mac computers (using Apple Silicon processors), install [homebrew](https://brew.sh/). Add your homebrew/bin directory to your PATH. Then install gphoto2 using homebrew:
@@ -50,50 +54,36 @@ export PATH=<location_of_homebrew_installation>/bin:$PATH
 brew install gphoto2 pkg-config
 ```
 
-- Check out the source code:
+- Install the Solar Eclipse Workbench:
 
 ```bash
-git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
-cd SolarEclipseWorkbench
+pip install solareclipseworkbench
 ```
 
-- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
+### Installation on Ubuntu 24.04
+
+- Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-poetry install
-poetry shell
-pip3 install PyObjC
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev
 ```
 
-### Installation on Ubuntu 22.04
-
-- Install poetry by executing the following line in the terminal
+- Install gphoto2 to be able to access the cameras by executing the following line in the terminal
 
 ```bash
-sudo apt install curl git
-/usr/bin/curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | /usr/bin/python3 -
+sudo apt-get install gphoto2/noble libgphoto2 python3-gphoto2
 ```
 
-- Check out the source code:
+- Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
-git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
-cd SolarEclipseWorkbench
+python -m venv solareclipseworkbench
 ```
 
-- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
+- Install the Solar Eclipse Workbench:
 
 ```bash
-~/.local/bin/poetry install
-~/.local/bin/poetry env activate
-# This will show the command to execute the environment.  Starts with source ~/.local/share/virtualenvs/SolarEclipseWorkbench-<hash>/bin/activate
-```
-
-- Eventually, to make the sound notifications a bit faster, install pygobject:
-
-```bash
-sudo apt install libcairo2-dev libgirepository1.0-dev gcc
-pip install pygobject
+pip install solareclipseworkbench
 ```
 
 ### Installation on Windows 11
@@ -107,32 +97,17 @@ wsl --install
 ```
 
 - Start using wsl by typing `wsl` in a new terminal.
-- Install poetry by executing the following line in the terminal
 
-```bash
-curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | python3 -
-```
-
-- Check out the source code:
-
-```bash
-git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
-```
-
-- Log out from wsl (by typing `exit`) and log in again.
-- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
-
-```bash
-cd SolarEclipseWorkbench
-~/.local/bin/poetry install
-~/.local/bin/poetry env activate
-# This will show the command to execute the environment.  Starts with source ~/.local/share/virtualenvs/SolarEclipseWorkbench-<hash>/bin/activate
-```
-
-- Install needed packages
+- Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
 sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev
+```
+
+- Install gphoto2 to be able to access the cameras by executing the following line in the terminal
+
+```bash
+sudo apt-get install gphoto2/noble libgphoto2 python3-gphoto2
 ```
 
 - Eventually, to make the sound notifications a bit faster, install pygobject:
@@ -140,6 +115,18 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcomm
 ```bash
 sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
 pip install pygobject
+```
+- 
+- Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
+
+```bash
+python -m venv solareclipseworkbench
+```
+
+- Install the Solar Eclipse Workbench:
+
+```bash
+pip install solareclipseworkbench
 ```
 
 ### Make cameras accessible in wsl
@@ -181,16 +168,23 @@ sudo usermod -aG plugdev $USER
 
 ## Running Solar Eclipse Workbench
 
-- The main script to start is `gui.py`.  You can add a parameters to set the needed parameters for the eclipse.  Some examples:
+- Start Solar Eclipse Workbench by executing the following commands:
+
+```bash
+source solareclipseworkbench/bin/activate
+python -m solareclipseworkbench
+```
+
+- You can add a parameters to set the needed parameters for the eclipse.  Some examples:
 
 ```bash
 # On macos, start the commands with sudo
-sudo ~/.local/bin/poetry run python src/solareclipseworkbench/gui.py -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
-sudo ~/.local/bin/poetry run python src/solareclipseworkbench/gui.py
+sudo python -m solareclipseworkbench -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
+sudo python -m solareclipseworkbench
 
 # In Linux or using WSL on Windows, start the command without sudo
-python ~/.local/bin/poetry run src/solareclipseworkbench/gui.py -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
-python ~/.local/bin/poetry run src/solareclipseworkbench/gui.py
+python solareclipseworkbench -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
+python solareclipseworkbench
 ```
 
 - There is a problem with `gphoto2`.  On macOS, Solar Eclipse Workbench needs to be started with sudo rights to be able to connect to the cameras.  In Linux (or Windows using wsl), sudo should not be used.
@@ -213,11 +207,11 @@ The following command line parameters can be used to start up gui.py.
 
 In the images below, a screenshot of the toolbar and the upper part of the UI are shown.
 
-![ui toolbar](img/toolbar.png)
+![ui toolbar](src/solareclipseworkbench/img/toolbar.png)
 
 The icons on the UI toolbar must be clicked from left to right (and the required data must be provided, if applicable) in order for the values in the upper section of the UI to appear.  Alternatively, the data can be passed as command line arguments at start-up, as discussed in the previous section.
 
-![ui top section](img/ui-top.png)
+![ui top section](src/solareclipseworkbench/img/ui-top.png)
 
 The functionality of the toolbar buttons is as follows (from left to right):
 
@@ -228,14 +222,14 @@ The functionality of the toolbar buttons is as follows (from left to right):
 - When pressing the "Plot" button, the specified location (longitude, latitude) will be marked with a red dot on the world map.  Note that this plot is not updated automatically when you change the values.
 - When pressing the "OK" button, the data are accepted and will be filled out in the top section of the UI.
 
-![location pop-up](img/location-popup.png)
+![location pop-up](src/solareclipseworkbench/img/location-popup.png)
 
 #### Eclipse date
 
 - When pressing the "Date" icon, a pop-up window (see screenshot below) will appear, in which you can choose the date of the eclipse from a drop-down menu.  At any moment in time, the next 20 solar eclipses are included in the list.
 - When pressing the "OK" button, the selected eclipse date is accepted and will be filled out in the top section of the UI.
 
-![eclipse date pop-up](img/eclipse-date-popup.png)
+![eclipse date pop-up](src/solareclipseworkbench/img/eclipse-date-popup.png)
 
 #### Reference moments
 
@@ -273,7 +267,7 @@ The functionality of the toolbar buttons is as follows (from left to right):
 - When pressing this icon, a pop-up window (see screenshot below) will appear, in which you can specify when (w.r.t. one of the reference moments of the eclipse) you want to start the simulation.
 - When pressing the "OK" button, the selected relative starting time of the simulation will be stored.  It will be applied when the jobs are being scheduled (see next section).
 
-![simulation pop-up](img/simulation-popup.png)
+![simulation pop-up](src/solareclipseworkbench/img/simulation-popup.png)
 
 #### Job scheduling
 
@@ -300,7 +294,7 @@ The functionality of the toolbar buttons is as follows (from left to right):
 - When pressing the "OK" button, the selected date and time format will be applied to all dates and times that are or will be displayed in the UI.
 - When pressing the "Cancel" button, the old formatting will be kept.
 
-![datetime format pop-up](img/datetime-format-popup.png)
+![datetime format pop-up](src/solareclipseworkbench/img/datetime-format-popup.png)
 
 #### Saving settings
 
@@ -417,6 +411,108 @@ Scripts from Solar Eclipse Maestro are converted automatically to scripts that c
 ## Error handling
 
 If something goes wrong, an error message will be logged in the log file `/tmp/solareclipseworkbench.log`.
+
+## Development Guide
+
+When you want to help with the development of Solar Eclipse Workbench, some extra installation is needed.
+### Installation on macOS
+
+- Install poetry by executing the following line in the terminal
+
+```bash
+curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | python3 -
+```
+- Check out the source code:
+
+```bash
+git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
+cd SolarEclipseWorkbench
+```
+
+- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
+
+```bash
+poetry install
+poetry shell
+pip3 install PyObjC
+```
+
+### Installation on Ubuntu 24.04
+
+- Install poetry by executing the following line in the terminal
+
+```bash
+sudo apt install curl git gstreamer1.0-plugins-base-apps
+/usr/bin/curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | /usr/bin/python3 -
+```
+
+- Check out the source code:
+
+```bash
+git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
+cd SolarEclipseWorkbench
+```
+
+- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
+
+```bash
+~/.local/bin/poetry install
+~/.local/bin/poetry env activate
+# This will show the command to execute the environment.  Starts with source ~/.local/share/virtualenvs/SolarEclipseWorkbench-<hash>/bin/activate
+```
+
+- Eventually, to make the sound notifications a bit faster, install pygobject:
+
+```bash
+sudo apt install libcairo2-dev libgirepository1.0-dev gcc
+pip install pygobject
+```
+
+### Installation on Windows 11
+
+- GPhoto2 is only available for Linux and macOS.  To run Solar Eclipse Workbench, wsl should be used.
+- Open a terminal in Windows
+- Install wsl by executing the command
+
+```bash
+wsl --install
+```
+
+- Start using wsl by typing `wsl` in a new terminal.
+- Install poetry by executing the following line in the terminal
+
+```bash
+curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | python3 -
+```
+
+- Check out the source code:
+
+```bash
+git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
+```
+
+- Log out from wsl (by typing `exit`) and log in again.
+- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
+
+```bash
+cd SolarEclipseWorkbench
+~/.local/bin/poetry install
+~/.local/bin/poetry env activate
+# This will show the command to execute the environment.  Starts with source ~/.local/share/virtualenvs/SolarEclipseWorkbench-<hash>/bin/activate
+```
+
+- Install needed packages
+
+```bash
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev
+```
+
+- Eventually, to make the sound notifications a bit faster, install pygobject:
+
+```bash
+sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
+pip install pygobject
+```
 
 ## Image attributions
 
