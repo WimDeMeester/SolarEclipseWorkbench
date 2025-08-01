@@ -34,6 +34,7 @@
     - [Installation on macOS](#installation-on-macos-1)
     - [Installation on Ubuntu 24.04](#installation-on-ubuntu-2404-1)
     - [Installation on Windows 11](#installation-on-windows-11-1)
+  - [Create and upload a new pip package](#create-and-upload-a-new-pip-package)
   - [Image attributions](#image-attributions)
     - [GUI icons](#gui-icons)
 
@@ -512,6 +513,15 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcomm
 ```bash
 sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
 pip install pygobject
+```
+
+## Create and upload a new pip package
+
+To create a new pip package, execute the following commands in the Solar Eclipse Workbench directory:
+
+```bash
+poetry build
+poetry publish
 ```
 
 ## Image attributions
