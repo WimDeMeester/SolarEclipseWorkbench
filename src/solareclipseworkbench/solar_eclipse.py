@@ -12,6 +12,9 @@
 # - Prediction and Analysis of Solar Eclipse Circumstances - Williams 1971
 
 import math
+import csv
+import os
+from datetime import datetime
 
 rad = math.pi / 180
 maxiterations = 20
@@ -730,6 +733,31 @@ def propper_angle(d):
         t -= 360
     return t
 
+def get_solar_eclipses(number_of_eclipses=None, start_date=None):
+    """
+    Reads eclipse_besselian.csv and returns a list of solar eclipses.
+    Optional parameters:
+        number_of_eclipses: int, limits the number of returned eclipses
+        start_date: str or datetime, filters eclipses after this date (YYYY-MM-DD)
+    """
+    eclipses = []
+    csv_path = os.path.join(os.path.dirname(__file__), 'eclipse_besselian.csv')
+    with open(csv_path, newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            eclipse_date = datetime(int(row['year']), int(row['month']), int(row['day']))
+            if start_date:
+                if isinstance(start_date, str):
+                    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                else:
+                    start_dt = start_date
+                if eclipse_date < start_dt:
+                    continue
+            eclipses.append(row)
+            if number_of_eclipses and len(eclipses) >= number_of_eclipses:
+                break
+    return eclipses
+
 def get_outline_curve_q_range(be, l):
     msq = be['X'] * be['X'] + be['Y'] * be['Y']
     m = math.sqrt(msq)
@@ -746,4 +774,3 @@ def get_outline_curve_q_range(be, l):
     if Q1 < Q2:
         Q1 += 360
     return {'start': Q2, 'end': Q1}
-

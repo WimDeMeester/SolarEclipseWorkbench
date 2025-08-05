@@ -38,3 +38,21 @@ duration = (result['UTThirdContact'] - result['UTSecondContact']) * 3600  # seco
 duration_minutes = int(duration // 60)
 duration_seconds = duration % 60
 print(f"Totality Duration: {duration_minutes} minutes and {duration_seconds:.2f} seconds")
+
+# Get the next solar eclipses
+from solareclipseworkbench.solar_eclipse import get_solar_eclipses
+
+# Get current date
+
+from datetime import datetime, timedelta
+current_date = datetime.now()
+current_date = current_date.strftime("%Y-%m-%d")  # Format as YYYY-MM-DD
+eclipses = get_solar_eclipses(20, current_date)
+
+print("\nUpcoming Solar Eclipses:")
+for eclipse in eclipses:
+    # Format the date as YYYY-MM-DD with a zero before the month
+    date = f"{eclipse['year']:04}-{int(eclipse['month']):02}-{int(eclipse['day']):02}"
+
+    print(f"Date: {date}, Type: {eclipse['eclipse_type']}, Magnitude: {float(eclipse['magnitude']):.6f}, Central duration: {eclipse['central_duration']}, Saros: {eclipse['saros']}")
+
