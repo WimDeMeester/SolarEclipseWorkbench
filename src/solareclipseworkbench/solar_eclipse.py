@@ -30,11 +30,33 @@ def solve_quadrant(sin, cos):
         return math.acos(cos)
 
 
-def get_element_coeffs():
+def get_element_coeffs(date=None):
+    """
+    Returns eclipse elements for the eclipse closest to the given date.
+    If no date is provided, defaults to 2026 eclipse.
+    date: str or datetime (YYYY-MM-DD)
+    """
+    if date is None:
+        return get_elements_2026()
+    if isinstance(date, str):
+        date_obj = datetime.strptime(date, '%Y-%m-%d')
+    else:
+        date_obj = date
+
+    # Example logic: select by year
+    year = date_obj.year
+    if year == 2017:
+        return get_elements_2017()
+    elif year == 2024:
+        return get_elements_2024()
+    elif year == 1994:
+        return get_elements_1994()
+    elif year == 1996:
+        return get_elements_1996()
+    elif year == 2026:
+        return get_elements_2026()
+    # Default fallback
     return get_elements_2026()
-    # return get_elements_2017()
-    # return get_elements_1994()
-    # return get_elements_1996()
 
 
 def get_elements_2017():
@@ -325,9 +347,9 @@ def get_elements(e, t, phi, lam, height):
     return o
 
 
-def get_local_circumstances(phi, lam, height):
+def get_local_circumstances(phi, lam, height, date = None):
     # Meeus - Elements of Solar Eclipses
-    e = get_element_coeffs()
+    e = get_element_coeffs(date)
     lam = -lam
 
     t = 0

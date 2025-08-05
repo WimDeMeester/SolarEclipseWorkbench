@@ -6,7 +6,11 @@ latitude = 41.6669   # degrees North
 longitude = -3.9852  # degrees East (negative for West)
 height = 828         # meters above sea level
 
-result = get_local_circumstances(latitude, longitude, height)
+# latitude = 39.65645555555555555555555555555556
+# longitude = -1.466675
+# height = 887
+
+result = get_local_circumstances(latitude, longitude, height, "2027-07-22")
 
 def ut_to_hms(ut):
     hours = int(ut)
