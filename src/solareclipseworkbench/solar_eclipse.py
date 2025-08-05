@@ -32,281 +32,53 @@ def solve_quadrant(sin, cos):
 
 def get_element_coeffs(date=None):
     """
-    Returns eclipse elements for the eclipse closest to the given date.
-    If no date is provided, defaults to 2026 eclipse.
+    Reads eclipse_besselian.csv and returns the coefficients for the eclipse closest to the given date.
+    If no date is provided, returns the next upcoming eclipse coefficients.
     date: str or datetime (YYYY-MM-DD)
     """
+    csv_path = os.path.join(os.path.dirname(__file__), 'eclipse_besselian.csv')
+    eclipses = []
+    with open(csv_path, newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            eclipse_date = datetime(int(row['year']), int(row['month']), int(row['day']))
+            row['eclipse_date'] = eclipse_date
+            eclipses.append(row)
+    if not eclipses:
+        return None
     if date is None:
-        return get_elements_2026()
-    if isinstance(date, str):
-        date_obj = datetime.strptime(date, '%Y-%m-%d')
+        now = datetime.now()
+        # Find the next upcoming eclipse
+        eclipses = [e for e in eclipses if e['eclipse_date'] >= now]
+        if not eclipses:
+            eclipse = sorted(eclipses, key=lambda e: e['eclipse_date'])[-1]
+        else:
+            eclipse = sorted(eclipses, key=lambda e: e['eclipse_date'])[0]
     else:
-        date_obj = date
+        if isinstance(date, str):
+            date_obj = datetime.strptime(date, '%Y-%m-%d')
+        else:
+            date_obj = date
+        # Find the closest eclipse to the given date
+        eclipse = min(eclipses, key=lambda e: abs((e['eclipse_date'] - date_obj).total_seconds()))
+    # Convert all numeric fields to float if possible
+    coeffs = {}
+    for k, v in eclipse.items():
+        if k == 'eclipse_date':
+            continue
+        try:
+            coeffs[k] = float(v)
+        except (ValueError, TypeError):
+            coeffs[k] = v
 
-    # Example logic: select by year
-    year = date_obj.year
-    if year == 2017:
-        return get_elements_2017()
-    elif year == 2024:
-        return get_elements_2024()
-    elif year == 1994:
-        return get_elements_1994()
-    elif year == 1996:
-        return get_elements_1996()
-    elif year == 2026:
-        return get_elements_2026()
-    # Default fallback
-    return get_elements_2026()
+    elements = {'jd': coeffs['julian_date'], 'Δt': coeffs['dt'], 'T0': coeffs['t0'], 'X0': coeffs['x0'], 'X1': coeffs['x1'], 'X2': coeffs['x2'], 'X3': coeffs['x3'],
+                'Y0': coeffs['y0'], 'Y1': coeffs['y1'], 'Y2': coeffs['y2'], 'Y3': coeffs['y3'], 'd0': coeffs['d0'], 'd1': coeffs['d1'], 'd2': coeffs['d2'],
+                'L10': coeffs['l10'], 'L11': coeffs['l11'], 'L12': coeffs['l12'], 'L20': coeffs['l20'], 'L21': coeffs['l21'], 'L22': coeffs['l22'],
+                'M0': coeffs['mu0'], 'M1': coeffs['mu1'], 'M2': coeffs['mu2'], 'tanf1': coeffs['tan_f1'], 'tanf2': coeffs['tan_f2'],}
 
-
-def get_elements_2017():
-    elements = {}
-    elements['jd'] = 2457987.5
-    elements['Δt'] = 69.1
-    elements['T0'] = 18
-
-    elements['X0'] = -0.1295710
-    elements['X1'] = 0.5406426
-    elements['X2'] = -0.0000294
-    elements['X3'] = -0.0000081
-
-    elements['Y0'] = 0.4854160
-    elements['Y1'] = -0.1416400
-    elements['Y2'] = -0.0000905
-    elements['Y3'] = 0.0000020
-
-    elements['d0'] = 11.8669596
-    elements['d1'] = -0.0136220
-    elements['d2'] = -0.0000020
-    elements['d3'] = 0.0
-
-    elements['L10'] = 0.5420930
-    elements['L11'] = 0.0001241
-    elements['L12'] = -0.0000118
-    elements['L13'] = 0.0
-
-    elements['L20'] = -0.0040250
-    elements['L21'] = 0.0001234
-    elements['L22'] = -0.0000117
-    elements['L23'] = 0.0
-
-    elements['M0'] = 89.245430
-    elements['M1'] = 15.003940
-    elements['M2'] = 0.0
-    elements['M3'] = 0.0
-
-    elements['tanf1'] = 0.0046222
-    elements['tanf2'] = 0.0045992
-
+    # Todo: Make sure to use the correct value for delta t
     return elements
 
-
-def get_elements_2024_2():
-    # year,"month","day","td_ge","dt","luna_num","saros","eclipse_type","gamma","magnitude","lat_ge","lng_ge","lat_dd_ge","lng_dd_ge","sun_alt","sun_azm","path_width","central_duration","duration_secs","cat_no","canon_plate",
-    # 2024, 4, 8, "18:18:29", 74.00000000, 300, 139, "T", .34314000, 1.05655000, "25.3N", "104.1W", 25.28945000, -104.12775000, 69.80000000, 149.40000000, 197.50000000, "04m28s", 268.10000000, 9561.00000000, 479.00000000,
-    # "julian_date",    "t0","x0","x1","x2","x3","y0","y1","y2","y3","d0","d1","d2","mu0","mu1","mu2","l10","l11","l12","l20","l21","l22","tan_f1","tan_f2","tmin","tmax","etype","PNS","UNS","NCN","nSer","nSeq","nJLE"
-    # 2460409.26300000, 18.00000000, -.31824400, .51171160, .00003260, -.00000842, .21976400, .27095890, -.00005950, -.00000466, 7.58620000, .01484400, -.00000200, 89.59122000, 15.00408000, .00000000, .53581400, .00006180, -.00001280, -.01027200, .00006150, -.00001270, .00466830, .00464500, -3.00000000, 3.00000000, 1, 0, 0, 0, 71, 30, 40
-
-    elements = {}
-    elements['jd'] = 2460408.5
-    elements['Δt'] = 69.1
-    elements['T0'] = 18
-
-    elements['X0'] = -0.3182588
-    elements['X1'] = 0.5117224
-    elements['X2'] = 0.0000330
-    elements['X3'] = -0.0000085
-
-    elements['Y0'] = 0.2197690
-    elements['Y1'] = 0.2709652
-    elements['Y2'] = -0.0000592
-    elements['Y3'] = -0.0000047
-
-    elements['d0'] = 7.5861809
-    elements['d1'] = 0.0148443
-    elements['d2'] = -0.0000017
-    elements['d3'] = 0.0
-
-    elements['L10'] = 0.5357259
-    elements['L11'] = 0.0000620
-    elements['L12'] = -0.0000128
-    elements['L13'] = 0.0
-
-    elements['L20'] = -0.0106071
-    elements['L21'] = 0.0000617
-    elements['L22'] = -0.0000127
-    elements['L23'] = 0.0
-
-    elements['M0'] = 89.5912142
-    elements['M1'] = 15.0040824
-    elements['M2'] = -0.0000008
-    elements['M3'] = 0.0
-
-    elements['tanf1'] = 0.0046663
-    elements['tanf2'] = 0.0046430
-
-    return elements
-
-
-def get_elements_2024():
-    elements = {}
-    elements['jd'] = 2460408.5
-    elements['Δt'] = 69.1
-    elements['T0'] = 18
-
-    elements['X0'] = -0.3182440
-    elements['X1'] = 0.5117116
-    elements['X2'] = 0.0000326
-    elements['X3'] = -0.0000084
-
-    elements['Y0'] = 0.2197640
-    elements['Y1'] = 0.2709589
-    elements['Y2'] = -0.0000595
-    elements['Y3'] = -0.0000047
-
-    elements['d0'] = 7.5862002
-    elements['d1'] = 0.0148440
-    elements['d2'] = -0.0000020
-    elements['d3'] = 0.0
-
-    elements['L10'] = 0.5358140
-    elements['L11'] = 0.0000618
-    elements['L12'] = -0.0000128
-    elements['L13'] = 0.0
-
-    elements['L20'] = -0.0102720
-    elements['L21'] = 0.0000615
-    elements['L22'] = -0.0000127
-    elements['L23'] = 0.0
-
-    elements['M0'] = 89.591217
-    elements['M1'] = 15.004080
-    elements['M2'] = 0.0
-    elements['M3'] = 0.0
-
-    elements['tanf1'] = 0.0046683
-    elements['tanf2'] = 0.0046450
-
-    return elements
-
-
-def get_elements_1996():
-    elements = {}
-    elements['Δt'] = 63
-    elements['T0'] = 14
-
-    elements['X0'] = 0.296103
-    elements['X1'] = 0.5060364
-    elements['X2'] = 0.0000145
-    elements['X3'] = -0.00000644
-
-    elements['Y0'] = 1.083058
-    elements['Y1'] = -0.1515218
-    elements['Y2'] = -0.0000102
-    elements['Y3'] = 0.00000184
-
-    elements['d0'] = -7.63950
-    elements['d1'] = -0.015234
-    elements['d2'] = 0.000002
-
-    elements['M0'] = 33.40582
-    elements['M1'] = 15.003782
-
-    elements['L10'] = 0.559341
-    elements['L11'] = -0.0001067
-    elements['L12'] = -0.0000107
-
-    elements['L20'] = 0.013151
-    elements['L21'] = -0.0001062
-    elements['L22'] = -0.0000106
-
-    elements['tanf1'] = 0.0046865
-    elements['tanf2'] = 0.0046632
-
-    return elements
-
-
-def get_elements_1994():
-    elements = {}
-    elements['Δt'] = 61
-    elements['T0'] = 17
-
-    elements['X0'] = -0.173367
-    elements['X1'] = 0.4990629
-    elements['X2'] = 0.0000296
-    elements['X3'] = -0.00000563
-
-    elements['Y0'] = 0.383484
-    elements['Y1'] = 0.0869393
-    elements['Y2'] = -0.0001183
-    elements['Y3'] = -0.00000092
-
-    elements['d0'] = 17.68613
-    elements['d1'] = 0.010642
-    elements['d2'] = -0.000004
-
-    elements['M0'] = 75.90923
-    elements['M1'] = 15.001621
-
-    elements['L10'] = 0.566906
-    elements['L11'] = -0.0000318
-    elements['L12'] = -0.0000098
-
-    elements['L20'] = 0.020679
-    elements['L21'] = -0.0000317
-    elements['L22'] = -0.0000097
-
-    elements['tanf1'] = 0.0046308
-    elements['tanf2'] = 0.0046077
-
-    return elements
-
-
-def get_elements_2026():
-    # year,"month","day","td_ge","dt","luna_num","saros","eclipse_type","gamma","magnitude","lat_ge","lng_ge","lat_dd_ge","lng_dd_ge","sun_alt","sun_azm","path_width","central_duration","duration_secs","cat_no","canon_plate",
-    # 2026, 8, 12, "17:47:06", 75.40000000, 329, 126, "T", .89774000, 1.03863000, "65.2N", "25.2W", 65.22345000, -25.21619000, 25.80000000, 248.40000000, 293.90000000, "02m18s", 138.20000000, 9566.00000000, 479.00000000,
-    # "julian_date",    "t0",        "x0",      "x1",      "x2",       "x3",       "y0",      "y1",       "y2",       "y3",
-    # 2461265.24100000, 18.00000000, .47551400, .51892490, -.00007730, -.00000804, .77118300, -.23016800, -.00012460, .00000377
-    # "d0"       ,"d1"       ,"d2"       ,"mu0"       ,"mu1"       ,"mu2"     ,"l10"     ,"l11"     ,"l12"      ,"l20"      ,"l21"     ,"l22","tan_f1","tan_f2","tmin","tmax","etype","PNS","UNS","NCN","nSer","nSeq","nJLE"
-    # 14.79667000, -.01206500, -.00000300, 88.74779000, 15.00309000, .00000000, .53795500, .00009390, -.00001210, -.00814200, .00009350, -.00001210, .00461410, .00459110, -3.00000000, 3.00000000, 1, 1, 0, 0, 72, 48, 2
-
-    elements = {}
-    elements['jd'] = 2461265.241
-    elements['Δt'] = 69.184
-    elements['T0'] = 18
-
-    elements['X0'] = 0.47551400
-    elements['X1'] = 0.51892490
-    elements['X2'] = -0.00007730
-    elements['X3'] = -0.00000804
-
-    elements['Y0'] = 0.77118300
-    elements['Y1'] = -0.23016800
-    elements['Y2'] = -0.00012460
-    elements['Y3'] = 0.00000377
-
-    elements['d0'] = 14.79667000
-    elements['d1'] = -0.01206500
-    elements['d2'] = -0.00000300
-
-    elements['L10'] = 0.53795500
-    elements['L11'] = 0.00009390
-    elements['L12'] = -0.00001210
-
-    # "d0"       ,"d1"       ,"d2"       ,"mu0"       ,"mu1"       ,"mu2"     ,"l10"     ,"l11"     ,"l12"      ,"l20"      ,"l21"     ,"l22"      ,"tan_f1","tan_f2","tmin","tmax","etype","PNS","UNS","NCN","nSer","nSeq","nJLE"
-    # 14.79667000, -.01206500, -.00000300, 88.74779000, 15.00309000, .00000000, .53795500, .00009390, -.00001210, -.00814200, .00009350, -.00001210, .00461410, .00459110, -3.00000000, 3.00000000, 1, 1, 0, 0, 72, 48, 2
-    elements['L20'] = -0.00814200
-    elements['L21'] = 0.00009350
-    elements['L22'] = -0.00001210
-
-    elements['M0'] = 88.74779000
-    elements['M1'] = 15.00309000
-    elements['M2'] = 0.0
-
-    elements['tanf1'] = 0.00461410
-    elements['tanf2'] = 0.00459110
-
-    return elements
 
 
 def get_elements(e, t, phi, lam, height):
