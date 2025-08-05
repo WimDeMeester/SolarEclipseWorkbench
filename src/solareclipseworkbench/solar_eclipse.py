@@ -76,7 +76,24 @@ def get_element_coeffs(date=None):
                 'L10': coeffs['l10'], 'L11': coeffs['l11'], 'L12': coeffs['l12'], 'L20': coeffs['l20'], 'L21': coeffs['l21'], 'L22': coeffs['l22'],
                 'M0': coeffs['mu0'], 'M1': coeffs['mu1'], 'M2': coeffs['mu2'], 'tanf1': coeffs['tan_f1'], 'tanf2': coeffs['tan_f2'],}
 
-    # Todo: Make sure to use the correct value for delta t
+    # Read delta t from the deltat.csv file
+    delta_t_path = os.path.join(os.path.dirname(__file__), 'deltat.csv')
+
+    with open(delta_t_path, newline='') as dtfile:
+        dt_reader = csv.DictReader(dtfile)
+        for dt_row in dt_reader:
+            if int(dt_row['year']) == int(coeffs['year']):
+                elements['Δt'] = float(dt_row['deltat'])
+                break
+        else:
+            # If no year found, use the last known value
+            print ("test 2")
+            dtfile.seek(0)  # Reset file pointer to the beginning
+            for dt_row in dt_reader:
+                if dt_row['deltat'] != 'deltat':
+                    elements['Δt'] = float(dt_row['deltat'])
+                    break
+
     return elements
 
 
