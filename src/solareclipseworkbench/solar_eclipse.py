@@ -585,6 +585,7 @@ def get_solar_eclipses(number_of_eclipses=None, start_date=None):
                 'type': row['eclipse_type'],
                 'magnitude': float(row['magnitude']),
                 'duration': float(row['duration_secs']),
+                'saros': row['saros'],
             }
             eclipses.append(eclipse_info)
             if number_of_eclipses and len(eclipses) >= number_of_eclipses:
