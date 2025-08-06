@@ -74,7 +74,7 @@ def get_element_coeffs(date=None):
     elements = {'jd': coeffs['julian_date'], 'Δt': coeffs['dt'], 'T0': coeffs['t0'], 'X0': coeffs['x0'], 'X1': coeffs['x1'], 'X2': coeffs['x2'], 'X3': coeffs['x3'],
                 'Y0': coeffs['y0'], 'Y1': coeffs['y1'], 'Y2': coeffs['y2'], 'Y3': coeffs['y3'], 'd0': coeffs['d0'], 'd1': coeffs['d1'], 'd2': coeffs['d2'],
                 'L10': coeffs['l10'], 'L11': coeffs['l11'], 'L12': coeffs['l12'], 'L20': coeffs['l20'], 'L21': coeffs['l21'], 'L22': coeffs['l22'],
-                'M0': coeffs['mu0'], 'M1': coeffs['mu1'], 'M2': coeffs['mu2'], 'tanf1': coeffs['tan_f1'], 'tanf2': coeffs['tan_f2'],}
+                'M0': coeffs['mu0'], 'M1': coeffs['mu1'], 'M2': coeffs['mu2'], 'tanf1': coeffs['tan_f1'], 'tanf2': coeffs['tan_f2'], 'type': coeffs['eclipse_type']}
 
     # Read delta t from the deltat.csv file
     delta_t_path = os.path.join(os.path.dirname(__file__), 'deltat.csv')
@@ -87,7 +87,6 @@ def get_element_coeffs(date=None):
                 break
         else:
             # If no year found, use the last known value
-            print ("test 2")
             dtfile.seek(0)  # Reset file pointer to the beginning
             for dt_row in dt_reader:
                 if dt_row['deltat'] != 'deltat':
@@ -206,8 +205,22 @@ def get_local_circumstances(phi, lam, height, date = None):
 
     UT = e['T0'] + t
 
+    eclipse_type = e['type']
+
+    if int((UTFirstContact - UTMaximum) * 10000) == 0 and int((UTMaximum - UTLastContact) * 10000) == 0:
+        eclipse_type = "No eclipse"
+    elif int((UTSecondContact - UTThirdContact) * 10000) == 0:
+        eclipse_type = "Partial"
+    elif eclipse_type == "A":
+        eclipse_type = "Annular"
+        # Switch UTThirdContact and UTSecondContact for annular eclipse
+        UTSecondContact, UTThirdContact = UTThirdContact, UTSecondContact
+    else:
+        # Total eclipse
+        eclipse_type = "Total"
+
     return {
-        'jd': e['jd'], 't': t, 'UT': UT, 'mag': G,
+        'jd': e['jd'], 't': t, 'type': eclipse_type, 'UT': UT, 'mag': G,
         'UTMaximum': UTMaximum,
         'UTFirstContact': UTFirstContact,
         'UTSecondContact': UTSecondContact,
@@ -564,7 +577,16 @@ def get_solar_eclipses(number_of_eclipses=None, start_date=None):
                     start_dt = start_date
                 if eclipse_date < start_dt:
                     continue
-            eclipses.append(row)
+
+            date = eclipse_date.strftime('%d/%m/%Y')
+
+            eclipse_info = {
+                'date': date,
+                'type': row['eclipse_type'],
+                'magnitude': float(row['magnitude']),
+                'duration': float(row['duration_secs']),
+            }
+            eclipses.append(eclipse_info)
             if number_of_eclipses and len(eclipses) >= number_of_eclipses:
                 break
     return eclipses
