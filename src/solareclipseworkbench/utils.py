@@ -1,13 +1,13 @@
 import logging
 from datetime import datetime, timedelta
 
-from astronomy import astronomy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_bracket, sync_cameras, scripts, execute_command
 from solareclipseworkbench.camera import CameraSettings
 from solareclipseworkbench.gui import SolarEclipseController
+from solareclipseworkbench.solar_eclipse import get_solar_eclipses
 
 COMMANDS = {
     'voice_prompt': voice_prompt,
@@ -28,18 +28,13 @@ def calculate_next_solar_eclipses(count: int) -> list:
     Returns:
         - List of solar eclipses, starting from today, as an array in the DD/MM/YYYY format
     """
-    now = astronomy.Time.Now().AddDays(-3)
+    # Get current date
+    from datetime import datetime, timedelta
+    current_date = datetime.now()
+    current_date = current_date - timedelta(days=3)  # Start from 3 days ago to ensure we catch today's eclipse
+    current_date = current_date.strftime("%Y-%m-%d")  # Format as YYYY-MM-DD
 
-    eclipse = astronomy.SearchGlobalSolarEclipse(now)
-    dates = [f"{eclipse.peak.Calendar()[2]:02}/{eclipse.peak.Calendar()[1]:02}/{eclipse.peak.Calendar()[0]}"]
-
-    previous_eclipse = eclipse.peak
-    for i in range(count - 1):
-        eclipse = astronomy.NextGlobalSolarEclipse(previous_eclipse)
-        dates.append(f"{eclipse.peak.Calendar()[2]:02}/{eclipse.peak.Calendar()[1]:02}/{eclipse.peak.Calendar()[0]}")
-        previous_eclipse = eclipse.peak
-
-    return dates
+    return get_solar_eclipses(count, current_date)
 
 
 def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: dict,
@@ -207,3 +202,17 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
         scheduler.add_job(func, trigger=trigger, args=args, name=description)
     except KeyError:
         return
+
+# Main
+def main():
+    """ Main function to test the utility functions. """
+    # Example usage of calculate_next_solar_eclipses
+    eclipses = calculate_next_solar_eclipses(5)
+    print("Next Solar Eclipses:", eclipses)
+
+    # Example usage of observe_solar_eclipse
+    # This would require actual reference moments and cameras to work properly
+    # observe_solar_eclipse({}, "commands.txt", {}, SolarEclipseController(), "C1", 10)
+
+if __name__ == "__main__":
+    main()
