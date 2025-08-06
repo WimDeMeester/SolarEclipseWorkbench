@@ -7,19 +7,23 @@ Reference moments of a solar eclipse:
     - C4: Fourth contact;
     - MAX: Maximum eclipse.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
-import astronomy
 import astropy.units as u
 import pytz
-from astronomy.astronomy import LocalSolarEclipseInfo, SearchLocalSolarEclipse
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from skyfield import almanac
 from skyfield.api import load, wgs84, Topos
 from skyfield.units import Angle
 from timezonefinder import TimezoneFinder
+from solareclipseworkbench.solar_eclipse import get_local_circumstances
 
+def ut_to_hms(ut):
+    hours = int(ut)
+    minutes = int((ut - hours) * 60)
+    seconds = ((ut - hours) * 60 - minutes) * 60
+    return hours, minutes, seconds
 
 class ReferenceMomentInfo:
 
@@ -67,11 +71,9 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
 
     location = EarthLocation(lat=latitude * u.deg, lon=longitude * u.deg, height=altitude * u.m)
 
-    astronomy_time = astronomy.astronomy.Time.Parse(time.isot + 'Z')
-    observer = astronomy.astronomy.Observer(latitude, longitude)
-    start_time = astronomy_time
-
-    eclipse: LocalSolarEclipseInfo = SearchLocalSolarEclipse(start_time, observer)
+    # Get time as YYYY-MM-DD
+    timestr = str(time).split(' ')[0]
+    result = get_local_circumstances(latitude, longitude, altitude, timestr)
 
     eph = load("de421.bsp")
     ts = load.timescale()
@@ -96,42 +98,74 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
     sunset = ReferenceMomentInfo(sunset.utc_datetime()[0], az, alt.degrees, timezone)
     timings['sunset'] = sunset
 
-    if str(eclipse.partial_begin.time)[:10] != str(time)[:10]:
-        return timings, 0, 'No eclipse'
+    first_contact_alt, first_contact_az = calculate_alt_az(earth, loc, result['UTFirstContact'], sun_ephem, time, ts)
+    last_contact_alt, last_contact_az = calculate_alt_az(earth, loc, result['UTLastContact'], sun_ephem, time, ts)
 
     # Check if altitude at one of the moments is > 0.0
-    if eclipse.peak.altitude > 0.0 or eclipse.partial_begin.altitude > 0.0 or eclipse.partial_end.altitude > 0.0:
-        alt, az = __calculate_alt_az(ts, earth, sun_ephem, loc, eclipse.partial_begin.time.Utc())
-        c1 = ReferenceMomentInfo(eclipse.partial_begin.time.Utc().replace(tzinfo=pytz.UTC), az,
-                                 eclipse.partial_begin.altitude, timezone)
+    if result['h'] > 0.0 or first_contact_alt > 0.0 or last_contact_alt > 0.0:
+        sc_h, sc_m, sc_s = ut_to_hms(result['UTFirstContact'])
+        sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
+
+        c1 = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
+                                                     sc_h, sc_m, int(sc_s), sc_microseconds).replace(tzinfo=pytz.UTC),
+                                                     first_contact_az, first_contact_alt.degrees, timezone)
         timings["C1"] = c1
 
-        if eclipse.total_begin is not None:
-            alt, az = __calculate_alt_az(ts, earth, sun_ephem, loc, eclipse.total_begin.time.Utc())
-            c2 = ReferenceMomentInfo(eclipse.total_begin.time.Utc().replace(tzinfo=pytz.UTC), az,
-                                     eclipse.total_begin.altitude, timezone)
+        if result['UTSecondContact'] != result['UTThirdContact']:
+            second_contact_alt, second_contact_az = calculate_alt_az(earth, loc, result['UTSecondContact'], sun_ephem,
+                                                                   time, ts)
+            sc_h, sc_m, sc_s = ut_to_hms(result['UTSecondContact'])
+            sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
+
+            c2 = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
+                                              sc_h, sc_m, int(sc_s), sc_microseconds).replace(tzinfo=pytz.UTC),
+                                     second_contact_az, second_contact_alt.degrees, timezone)
             timings["C2"] = c2
 
-        alt, az = __calculate_alt_az(ts, earth, sun_ephem, loc, eclipse.peak.time.Utc())
-        max_eclipse = ReferenceMomentInfo(eclipse.peak.time.Utc().replace(tzinfo=pytz.UTC), az, eclipse.peak.altitude,
-                                          timezone)
-        timings["MAX"] = max_eclipse
+        max_contact_alt, max_contact_az = calculate_alt_az(earth, loc, result['UTMaximum'], sun_ephem,
+                                                               time, ts)
+        sc_h, sc_m, sc_s = ut_to_hms(result['UTMaximum'])
+        sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
 
-        if eclipse.total_end is not None:
-            alt, az = __calculate_alt_az(ts, earth, sun_ephem, loc, eclipse.total_end.time.Utc())
-            c3 = ReferenceMomentInfo(eclipse.total_end.time.Utc().replace(tzinfo=pytz.UTC), az,
-                                     eclipse.total_end.altitude, timezone)
+        maximum = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
+                                          sc_h, sc_m, int(sc_s), sc_microseconds).replace(tzinfo=pytz.UTC),
+                                 max_contact_az, max_contact_alt.degrees, timezone)
+        timings["MAX"] = maximum
+
+        if result['UTSecondContact'] != result['UTThirdContact']:
+            third_contact_alt, third_contact_az = calculate_alt_az(earth, loc, result['UTThirdContact'], sun_ephem,
+                                                                   time, ts)
+            sc_h, sc_m, sc_s = ut_to_hms(result['UTThirdContact'])
+            sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
+
+            c3 = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
+                                              sc_h, sc_m, int(sc_s), sc_microseconds).replace(tzinfo=pytz.UTC),
+                                     third_contact_az, third_contact_alt.degrees, timezone)
             timings["C3"] = c3
-            timings["duration"] = eclipse.total_end.time.Utc() - eclipse.total_begin.time.Utc()
 
-        alt, az = __calculate_alt_az(ts, earth, sun_ephem, loc, eclipse.partial_end.time.Utc())
-        c4 = ReferenceMomentInfo(eclipse.partial_end.time.Utc().replace(tzinfo=pytz.UTC), az,
-                                 eclipse.partial_end.altitude, timezone)
+            timings["duration"] = timedelta(hours=(result['UTThirdContact'] - result['UTSecondContact']))
+
+        sc_h, sc_m, sc_s = ut_to_hms(result['UTLastContact'])
+        sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
+
+        c4 = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
+                                                     sc_h, sc_m, int(sc_s), sc_microseconds).replace(tzinfo=pytz.UTC),
+                                                     last_contact_az, last_contact_alt.degrees, timezone)
         timings["C4"] = c4
 
-        return timings, eclipse.obscuration, eclipse.kind.name
+        return timings, result['mag'], result['type']
     else:
         return timings, 0, 'No eclipse'
+
+
+def calculate_alt_az(earth, loc, reference_moment, sun_ephem, time, ts):
+    hours, minutes, seconds = ut_to_hms(reference_moment)
+    # Convert the first contact time to a datetime object
+    first_contact_datetime = datetime(time.datetime.year, time.datetime.month, time.datetime.day,
+                                      hours, minutes, int(seconds), int((seconds - int(seconds)) * 1_000_000)).replace(
+        tzinfo=pytz.UTC)
+    first_contact_alt, first_contact_az = __calculate_alt_az(ts, earth, sun_ephem, loc, first_contact_datetime)
+    return first_contact_alt, first_contact_az
 
 
 def __calculate_alt_az(ts, earth, sun_ephem, loc, timing):
@@ -144,9 +178,11 @@ def __calculate_alt_az(ts, earth, sun_ephem, loc, timing):
 
 
 def main():
-    eclipse_date = Time('2024-04-08')
-    # eclipse_date = Time('2024-10-02')
-    timings, magnitude, eclipse_type = calculate_reference_moments(-104.63525, 24.01491, 1877.3, eclipse_date)
+    eclipse_date = Time('2026-08-12')
+    # eclipse_date = Time('2005-10-03')
+    # timings, magnitude, eclipse_type = calculate_reference_moments(-4.14506554482961, 40.58805075678097, 828, eclipse_date)
+
+    timings, magnitude, eclipse_type = calculate_reference_moments(-3.9852, 41.6669, 828, eclipse_date)
     # timings, magnitude, type = calculate_reference_moments(-75.18647, -47.29000, 1877.3, eclipse_date)
     print("Type: ", eclipse_type)
     print("Magnitude: ", magnitude)
@@ -156,13 +192,12 @@ def main():
         "------------------------------------------------------------------------------------------------------------")
     for key, value in timings.items():
         if value.__class__ == ReferenceMomentInfo:
-            print("{:<10} {:<25} {:<25} {:<25} {:<25}".format(key, value.time_utc.strftime("%m/%d/%Y %H:%M:%S"),
-                                                              value.time_local.strftime("%m/%d/%Y %H:%M:%S"),
+            # Also show microseconds in the UTC and local time
+            print("{:<10} {:<25} {:<25} {:<25} {:<25}".format(key, value.time_utc.strftime("%m/%d/%Y %H:%M:%S.%f"),
+                                                              value.time_local.strftime("%m/%d/%Y %H:%M:%S.%f"),
                                                               value.azimuth, value.altitude))
         else:
             print("{:<10} {:<25}".format(key, str(value)))
-
-    print(type(timings["duration"]))
 
 
 if __name__ == "__main__":
