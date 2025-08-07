@@ -1,7 +1,4 @@
-# Greg Miller gmiller@gregmiller.net 2023
-# https://www.celestialprogramming.com/
-# Released as public domain
-#
+# Based on Greg Miller gmiller@gregmiller.net 2023 https://www.celestialprogramming.com/
 # Functions for computing solar eclipses.
 # Algorithms from various sources including:
 # - A Manual of Spherical and Practical Astronomy - Chauvenet 1863
@@ -16,8 +13,12 @@ import csv
 import os
 from datetime import datetime
 
+from astropy.time import Time
+
+from solareclipseworkbench.besselian_element_generator import BesselianElementGenerator
+
 rad = math.pi / 180
-maxiterations = 20
+max_iterations = 20
 
 def solve_quadrant(sin, cos):
     """
@@ -35,17 +36,17 @@ def solve_quadrant(sin, cos):
     """
     if sin >= 0 and cos >= 0:
         return math.asin(sin)
-    if sin < 0 and cos >= 0:
+    if sin < 0 <= cos:
         return math.asin(sin)
     if sin < 0 and cos < 0:
         return -math.acos(cos)
-    if sin >= 0 and cos < 0:
+    if sin >= 0 > cos:
         return math.acos(cos)
 
 
 def get_element_coeffs(date=None):
     """
-    Reads Besselian element coefficients for solar eclipses from `eclipse_besselian.csv` and returns the coefficients for the eclipse closest to the specified date.
+    Reads basic information for solar eclipses from `eclipse_besselian.csv`, calculated the Besselian Elements and returns the coefficients for the eclipse closest to the specified date.
 
     Parameters:
         date (str or datetime, optional): Date of the eclipse (format: 'YYYY-MM-DD'). If None, returns the next upcoming eclipse coefficients.
@@ -102,23 +103,43 @@ def get_element_coeffs(date=None):
         except (ValueError, TypeError):
             coeffs[k] = v
 
-    elements = {'jd': coeffs['julian_date'], 'Δt': coeffs['dt'], 'T0': coeffs['t0'], 'X0': coeffs['x0'], 'X1': coeffs['x1'], 'X2': coeffs['x2'], 'X3': coeffs['x3'],
-                'Y0': coeffs['y0'], 'Y1': coeffs['y1'], 'Y2': coeffs['y2'], 'Y3': coeffs['y3'], 'd0': coeffs['d0'], 'd1': coeffs['d1'], 'd2': coeffs['d2'],
-                'L10': coeffs['l10'], 'L11': coeffs['l11'], 'L12': coeffs['l12'], 'L20': coeffs['l20'], 'L21': coeffs['l21'], 'L22': coeffs['l22'],
-                'M0': coeffs['mu0'], 'M1': coeffs['mu1'], 'M2': coeffs['mu2'], 'tanf1': coeffs['tan_f1'], 'tanf2': coeffs['tan_f2'], 'type': coeffs['eclipse_type']}
+    # Calculate the Besselian elements
+    time = coeffs['td_ge']
+    # Split the time into hours, minutes, and seconds. The timestring is in the format HH:MM:SS
+    time_parts = time.split(':')
+    hours, minutes, seconds = map(int, time_parts)
+    if minutes >= 30:
+        hours += 1
+
+    time_str = f"{int(coeffs['year']):04d}-{int(coeffs['month']):02d}-{int(coeffs['day']):02d} {hours:02d}:00:00"
+
+    t = Time(time_str, scale='utc')
+    # Need to take the closed hour from the besselian elements CSV file to get the correct results.
+    jd_tdb = t.jd
+    bess = BesselianElementGenerator.get_elements(jd_tdb)
+
+    elements = {'jd': coeffs['julian_date'], 'Δt': coeffs['dt'], 'T0': coeffs['t0'], 'X0': bess['x'][0], 'X1': bess['x'][1], 'X2': bess['x'][2], 'X3': bess['x'][3],
+                'Y0': bess['y'][0], 'Y1': bess['y'][1], 'Y2': bess['y'][2], 'Y3': bess['y'][3], 'd0': bess['d'][0], 'd1': bess['d'][1], 'd2': bess['d'][2],
+                'L10': bess['l1'][0], 'L11': bess['l1'][1], 'L12': bess['l1'][2], 'L20': bess['l2'][0], 'L21': bess['l2'][1], 'L22': bess['l2'][2],
+                'M0': bess['mu'][0], 'M1': bess['mu'][1], 'M2': bess['mu'][2], 'tanf1': bess['tanf1'], 'tanf2': bess['tanf2'], 'type': coeffs['eclipse_type']}
+
+    # elements = {'jd': coeffs['julian_date'], 'Δt': coeffs['dt'], 'T0': coeffs['t0'], 'X0': coeffs['x0'], 'X1': coeffs['x1'], 'X2': coeffs['x2'], 'X3': coeffs['x3'],
+    #             'Y0': coeffs['y0'], 'Y1': coeffs['y1'], 'Y2': coeffs['y2'], 'Y3': coeffs['y3'], 'd0': coeffs['d0'], 'd1': coeffs['d1'], 'd2': coeffs['d2'],
+    #             'L10': coeffs['l10'], 'L11': coeffs['l11'], 'L12': coeffs['l12'], 'L20': coeffs['l20'], 'L21': coeffs['l21'], 'L22': coeffs['l22'],
+    #             'M0': coeffs['mu0'], 'M1': coeffs['mu1'], 'M2': coeffs['mu2'], 'tanf1': coeffs['tan_f1'], 'tanf2': coeffs['tan_f2'], 'type': coeffs['eclipse_type']}
 
     # Read delta t from the deltat.csv file
     delta_t_path = os.path.join(os.path.dirname(__file__), 'deltat.csv')
 
-    with open(delta_t_path, newline='') as dtfile:
-        dt_reader = csv.DictReader(dtfile)
+    with open(delta_t_path, newline='') as dt_file:
+        dt_reader = csv.DictReader(dt_file)
         for dt_row in dt_reader:
             if int(dt_row['year']) == int(coeffs['year']):
                 elements['Δt'] = float(dt_row['deltat'])
                 break
         else:
             # If no year found, use the last known value
-            dtfile.seek(0)  # Reset file pointer to the beginning
+            dt_file.seek(0)  # Reset file pointer to the beginning
             for dt_row in dt_reader:
                 if dt_row['deltat'] != 'deltat':
                     elements['Δt'] = float(dt_row['deltat'])
@@ -160,18 +181,12 @@ def get_elements(e, t, phi, lam, height):
         This function calculates the Besselian elements and related intermediate values for a solar eclipse at a specified time and location. These values are used in further calculations of eclipse circumstances, such as contact times and local geometry.
     """
     # Meeus - Elements of Solar Eclipses
-    o = {}
-    o['X'] = e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t
-    o['Y'] = e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t
-    o['d'] = e['d0'] + e['d1'] * t + e['d2'] * t * t
-    o['M'] = e['M0'] + e['M1'] * t
-    o['Xp'] = e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t
-    o['Yp'] = e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t
-    o['Mp'] = e['M1']
-    o['L1'] = e['L10'] + e['L11'] * t + e['L12'] * t * t
-    o['L2'] = e['L20'] + e['L21'] * t + e['L22'] * t * t
-    o['tanf1'] = e['tanf1']
-    o['tanf2'] = e['tanf2']
+    o = {'X': e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t,
+         'Y': e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t,
+         'd': e['d0'] + e['d1'] * t + e['d2'] * t * t, 'M': e['M0'] + e['M1'] * t,
+         'Xp': e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t, 'Yp': e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t,
+         'Mp': e['M1'], 'L1': e['L10'] + e['L11'] * t + e['L12'] * t * t,
+         'L2': e['L20'] + e['L21'] * t + e['L22'] * t * t, 'tanf1': e['tanf1'], 'tanf2': e['tanf2']}
 
     o['H'] = o['M'] - lam - 0.00417807 * e['Δt']
 
@@ -213,11 +228,11 @@ def get_local_circumstances(phi, lam, height, date = None):
             - 'type' (str): Type of eclipse at the location.
             - 'UT' (float): Universal Time of maximum eclipse (in hours).
             - 'mag' (float): Eclipse magnitude at the location.
-            - 'UTMaximum' (float): Universal Time of maximum eclipse (in hours).
-            - 'UTFirstContact' (float): Universal Time of first contact (in hours).
-            - 'UTSecondContact' (float): Universal Time of second contact (in hours).
-            - 'UTThirdContact' (float): Universal Time of third contact (in hours).
-            - 'UTLastContact' (float): Universal Time of last contact (in hours).
+            - 'ut_maximum' (float): Universal Time of maximum eclipse (in hours).
+            - 'ut_first_contact' (float): Universal Time of first contact (in hours).
+            - 'ut_second_contact' (float): Universal Time of second contact (in hours).
+            - 'ut_third_contact' (float): Universal Time of third contact (in hours).
+            - 'ut_last_contact' (float): Universal Time of last contact (in hours).
             - 'h' (float): Altitude of the Sun at maximum eclipse (in degrees).
             - 'm' (float): Minimum separation between shadow axis and observer (in units of Earth's radius).
             - 'elements' (dict): Computed Besselian elements and intermediate values.
@@ -233,99 +248,95 @@ def get_local_circumstances(phi, lam, height, date = None):
     tau_m = 10000
     iterations = 0
     o = None
-    while abs(tau_m) > 0.00001 and iterations < maxiterations:
+    while abs(tau_m) > 0.00001 and iterations < max_iterations:
         o = get_elements(e, t, phi, lam, height)
         tau_m = - (o['u'] * o['a'] + o['v'] * o['b']) / (o['n'] * o['n'])
         t = t + tau_m
         iterations += 1
 
     m = math.sqrt(o['u'] * o['u'] + o['v'] * o['v'])
-    G = (o['L1p'] - m) / (o['L1p'] + o['L2p'])
-    A = (o['L1p'] - o['L2p']) / (o['L1p'] + o['L2p'])
-
-    Pm = math.atan2(o['u'] / o['v'], 1) / rad
+    g = (o['L1p'] - m) / (o['L1p'] + o['L2p'])
 
     sinh = math.sin(o['d'] * rad) * math.sin(phi * rad) + math.cos(o['d'] * rad) * math.cos(phi * rad) * math.cos(o['H'] * rad)
     h = math.asin(sinh) / rad
-    q = math.asin(math.cos(phi * rad) * math.sin(o['H'] * rad) / math.cos(h * rad))
 
-    S = (o['a'] * o['v'] - o['u'] * o['b']) / (o['n'] * o['L1p'])
-    tau = o['L1p'] / o['n'] * math.sqrt(max(0, 1 - S * S))
+    s = (o['a'] * o['v'] - o['u'] * o['b']) / (o['n'] * o['L1p'])
+    tau = o['L1p'] / o['n'] * math.sqrt(max(0, 1 - s * s))
 
     first_contact = t - tau
     last_contact = t + tau
 
     for _ in range(10):
         fco = get_elements(e, first_contact, phi, lam, height)
-        S = (fco['a'] * fco['v'] - fco['u'] * fco['b']) / (fco['n'] * fco['L1p'])
-        tau_f = - (fco['u'] * fco['a'] + fco['v'] * fco['b']) / (fco['n'] * fco['n']) - fco['L1p'] / fco['n'] * math.sqrt(max(0, 1 - S * S))
+        s = (fco['a'] * fco['v'] - fco['u'] * fco['b']) / (fco['n'] * fco['L1p'])
+        tau_f = - (fco['u'] * fco['a'] + fco['v'] * fco['b']) / (fco['n'] * fco['n']) - fco['L1p'] / fco['n'] * math.sqrt(max(0, 1 - s * s))
         first_contact = first_contact + tau_f
 
     for _ in range(10):
         fco = get_elements(e, last_contact, phi, lam, height)
-        S = (fco['a'] * fco['v'] - fco['u'] * fco['b']) / (fco['n'] * fco['L1p'])
-        tau_f = - (fco['u'] * fco['a'] + fco['v'] * fco['b']) / (fco['n'] * fco['n']) + fco['L1p'] / fco['n'] * math.sqrt(max(0, 1 - S * S))
+        s = (fco['a'] * fco['v'] - fco['u'] * fco['b']) / (fco['n'] * fco['L1p'])
+        tau_f = - (fco['u'] * fco['a'] + fco['v'] * fco['b']) / (fco['n'] * fco['n']) + fco['L1p'] / fco['n'] * math.sqrt(max(0, 1 - s * s))
         last_contact = last_contact + tau_f
 
     # Interior contacts
-    S = (o['a'] * o['v'] - o['u'] * o['b']) / (o['n'] * o['L2p'])
-    tau = o['L2p'] / o['n'] * math.sqrt(max(0, 1 - S * S))
+    s = (o['a'] * o['v'] - o['u'] * o['b']) / (o['n'] * o['L2p'])
+    tau = o['L2p'] / o['n'] * math.sqrt(max(0, 1 - s * s))
 
     third_contact = t - tau
     second_contact = t + tau
 
     for _ in range(10):
         fco = get_elements(e, third_contact, phi, lam, height)
-        S = (fco['a'] * fco['v'] - fco['u'] * fco['b']) / (fco['n'] * fco['L2p'])
-        tau_f = - (fco['u'] * fco['a'] + fco['v'] * fco['b']) / (fco['n'] * fco['n']) - fco['L2p'] / fco['n'] * math.sqrt(max(0, 1 - S * S))
+        s = (fco['a'] * fco['v'] - fco['u'] * fco['b']) / (fco['n'] * fco['L2p'])
+        tau_f = - (fco['u'] * fco['a'] + fco['v'] * fco['b']) / (fco['n'] * fco['n']) - fco['L2p'] / fco['n'] * math.sqrt(max(0, 1 - s * s))
         third_contact = third_contact + tau_f
 
     for _ in range(10):
         fco = get_elements(e, second_contact, phi, lam, height)
-        S = (fco['a'] * fco['v'] - fco['u'] * fco['b']) / (fco['n'] * fco['L2p'])
-        tau_f = - (fco['u'] * fco['a'] + fco['v'] * fco['b']) / (fco['n'] * fco['n']) + fco['L2p'] / fco['n'] * math.sqrt(max(0, 1 - S * S))
+        s = (fco['a'] * fco['v'] - fco['u'] * fco['b']) / (fco['n'] * fco['L2p'])
+        tau_f = - (fco['u'] * fco['a'] + fco['v'] * fco['b']) / (fco['n'] * fco['n']) + fco['L2p'] / fco['n'] * math.sqrt(max(0, 1 - s * s))
         second_contact = second_contact + tau_f
 
-    UTFirstContact = e['T0'] + first_contact - e['Δt'] / 60 / 60
-    UTSecondContact = e['T0'] + second_contact - e['Δt'] / 60 / 60
-    UTThirdContact = e['T0'] + third_contact - e['Δt'] / 60 / 60
-    UTLastContact = e['T0'] + last_contact - e['Δt'] / 60 / 60
-    UTMaximum = e['T0'] + t - e['Δt'] / 60 / 60
+    ut_first_contact = e['T0'] + first_contact - e['Δt'] / 60 / 60
+    ut_second_contact = e['T0'] + second_contact - e['Δt'] / 60 / 60
+    ut_third_contact = e['T0'] + third_contact - e['Δt'] / 60 / 60
+    ut_last_contact = e['T0'] + last_contact - e['Δt'] / 60 / 60
+    ut_maximum = e['T0'] + t - e['Δt'] / 60 / 60
 
-    UT = e['T0'] + t
+    ut = e['T0'] + t
 
     eclipse_type = e['type']
 
-    if int((UTFirstContact - UTMaximum) * 10000) == 0 and int((UTMaximum - UTLastContact) * 10000) == 0:
+    if int((ut_first_contact - ut_maximum) * 10000) == 0 and int((ut_maximum - ut_last_contact) * 10000) == 0:
         eclipse_type = "No eclipse"
-    elif int((UTSecondContact - UTThirdContact) * 10000) == 0:
+    elif int((ut_second_contact - ut_third_contact) * 10000) == 0:
         eclipse_type = "Partial"
     elif eclipse_type == "A":
         eclipse_type = "Annular"
-        # Switch UTThirdContact and UTSecondContact for annular eclipse
-        UTSecondContact, UTThirdContact = UTThirdContact, UTSecondContact
+        # Switch ut_third_contact and ut_second_contact for annular eclipse
+        ut_second_contact, ut_third_contact = ut_third_contact, ut_second_contact
     else:
         # Total eclipse
         eclipse_type = "Total"
 
     return {
-        'jd': e['jd'], 't': t, 'type': eclipse_type, 'UT': UT, 'mag': G,
-        'UTMaximum': UTMaximum,
-        'UTFirstContact': UTFirstContact,
-        'UTSecondContact': UTSecondContact,
-        'UTThirdContact': UTThirdContact,
-        'UTLastContact': UTLastContact,
+        'jd': e['jd'], 't': t, 'type': eclipse_type, 'UT': ut, 'mag': g,
+        'ut_maximum': ut_maximum,
+        'ut_first_contact': ut_first_contact,
+        'ut_second_contact': ut_second_contact,
+        'ut_third_contact': ut_third_contact,
+        'ut_last_contact': ut_last_contact,
         'h': h, 'm': m, 'elements': o
     }
 
 
-def compute_central_lat_lon_for_time(e, UTC):
+def compute_central_lat_lon_for_time(e, utc):
     """
     Computes the central latitude and longitude of the eclipse shadow at a specific Universal Time (UTC) using Besselian elements.
 
     Parameters:
         e (dict): Dictionary containing Besselian element coefficients for the eclipse.
-        UTC (float): Universal Time (in hours) for which to compute the central coordinates.
+        utc (float): Universal Time (in hours) for which to compute the central coordinates.
 
     Returns:
         dict: Dictionary containing:
@@ -338,42 +349,38 @@ def compute_central_lat_lon_for_time(e, UTC):
     Description:
         This function calculates the geographic coordinates (latitude and longitude) of the center of the eclipse shadow for a given UTC, along with the magnitude, duration, and path width. It uses Besselian elements to determine the position and geometry of the shadow on Earth's surface.
     """
-    t = UTC - e['T0']
-    X = e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t
-    Y = e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t
+    t = utc - e['T0']
+    x = e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t
+    y = e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t
     d = e['d0'] + e['d1'] * t + e['d2'] * t * t
-    M = e['M0'] + e['M1'] * t
-    L1 = e['L10'] + e['L11'] * t + e['L12'] * t * t
-    L2 = e['L20'] + e['L21'] * t + e['L22'] * t * t
-    Xp = e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t
-    Yp = e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t
-    dtemp = d * rad
+    m = e['M0'] + e['M1'] * t
+    l1 = e['L10'] + e['L11'] * t + e['L12'] * t * t
+    l2 = e['L20'] + e['L21'] * t + e['L22'] * t * t
+    xp = e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t
+
     omega = 1 / math.sqrt(1 - 0.006694385 * math.cos(d * rad) * math.cos(d * rad))
     p = e['M1'] / 57.2957795
-    b = Yp - p * X * math.sin(d * rad)
-    c = Xp + p * Y * math.sin(d * rad)
-    y1 = omega * Y
+    c = xp + p * y * math.sin(d * rad)
+    y1 = omega * y
     b1 = omega * math.sin(d * rad)
     b2 = 0.99664719 * omega * math.cos(d * rad)
-    B = math.sqrt(max(0, 1 - X * X - y1 * y1))
-    Phi1 = math.asin(B * b1 + y1 * b2)
-    sinH = X / math.cos(Phi1)
-    cosH = (B * b2 - y1 * b1) / math.cos(Phi1)
-    H = solve_quadrant(sinH, cosH) / rad
-    Phi = math.atan(1.00336409 * math.tan(Phi1)) / rad
-    lam = M - H - 0.00417807 * e['Δt']
-    L1p = L1 - B * e['tanf1']
-    L2p = L2 - B * e['tanf2']
-    a = c - p * B * math.cos(d * rad)
+    b = math.sqrt(max(0, 1 - x * x - y1 * y1))
+    phi1 = math.asin(b * b1 + y1 * b2)
+    sin_h = x / math.cos(phi1)
+    cos_h = (b * b2 - y1 * b1) / math.cos(phi1)
+    h = solve_quadrant(sin_h, cos_h) / rad
+    phi = math.atan(1.00336409 * math.tan(phi1)) / rad
+    lam = m - h - 0.00417807 * e['Δt']
+    l1p = l1 - b * e['tanf1']
+    l2p = l2 - b * e['tanf2']
+    a = c - p * b * math.cos(d * rad)
     n = math.sqrt(a * a + b * b)
-    duration = 7200 * L2p / n
-    sinh = math.sin(d * rad) * math.sin(Phi * rad) + math.cos(d * rad) * math.cos(Phi * rad) * math.cos(H * rad)
-    h = math.asin(sinh) / rad
-    K2 = B * B + ((X * a + Y * b) * (X * a + Y * b)) / (n * n)
-    K = math.sqrt(K2)
-    width = 12756 * abs(L2p) / K
-    A = (L1p - L2p) / (L1p + L2p)
-    return {'lat': Phi, 'lon': -lam, 'magnitude': A, 'duration': duration, 'width': width}
+    duration = 7200 * l2p / n
+    k2 = b * b + ((x * a + y * b) * (x * a + y * b)) / (n * n)
+    k = math.sqrt(k2)
+    width = 12756 * abs(l2p) / k
+    a = (l1p - l2p) / (l1p + l2p)
+    return {'lat': phi, 'lon': -lam, 'magnitude': a, 'duration': duration, 'width': width}
 
 
 def compute_extremes(e, t0):
@@ -413,16 +420,11 @@ def compute_extremes(e, t0):
         It is typically used to determine the properties of the eclipse at extreme points, such as the beginning or end of the path.
     """
     t = t0
-    r = {}
-    r['t'] = t
-    r['X'] = e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t
-    r['Y'] = e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t
-    r['d'] = e['d0'] + e['d1'] * t + e['d2'] * t * t
-    r['M'] = e['M0'] + e['M1'] * t
-    r['L1'] = e['L10'] + e['L11'] * t + e['L12'] * t * t
-    r['L2'] = e['L20'] + e['L21'] * t + e['L22'] * t * t
-    r['Xp'] = e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t
-    r['Yp'] = e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t
+    r = {'t': t, 'X': e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t,
+         'Y': e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t,
+         'd': e['d0'] + e['d1'] * t + e['d2'] * t * t, 'M': e['M0'] + e['M1'] * t,
+         'L1': e['L10'] + e['L11'] * t + e['L12'] * t * t, 'L2': e['L20'] + e['L21'] * t + e['L22'] * t * t,
+         'Xp': e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t, 'Yp': e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t}
     r['omega'] = 1 / math.sqrt(1 - 0.006694385 * math.cos(r['d'] * rad) * math.cos(r['d'] * rad))
     r['p'] = e['M1'] / 57.2957795
     r['b'] = r['Yp'] - r['p'] * r['X'] * math.sin(r['d'] * rad)
@@ -435,9 +437,9 @@ def compute_extremes(e, t0):
         temp = 0
     r['B'] = math.sqrt(temp)
     r['Phi1'] = math.asin(r['B'] * r['b1'] + r['y1'] * r['b2'])
-    sinH = r['X'] / math.cos(r['Phi1'])
-    cosH = (r['B'] * r['b2'] - r['y1'] * r['b1']) / math.cos(r['Phi1'])
-    r['H'] = solve_quadrant(sinH, cosH) / rad
+    sin_h = r['X'] / math.cos(r['Phi1'])
+    cos_h = (r['B'] * r['b2'] - r['y1'] * r['b1']) / math.cos(r['Phi1'])
+    r['H'] = solve_quadrant(sin_h, cos_h) / rad
     r['Phi'] = math.atan(1.00336409 * math.tan(r['Phi1'])) / rad
     r['lam'] = -(r['M'] - r['H'] - 0.00417807 * e['Δt'])
     r['L1p'] = r['L1'] - r['B'] * e['tanf1']
@@ -473,10 +475,10 @@ def compute_estimate(e):
     v = omega * e['Y0']
     b = omega * e['Y1']
     n = math.sqrt(a * a + b * b)
-    S = (a * v - u * b) / n
+    s = (a * v - u * b) / n
     tau = -(u * a + v * b) / (n * n)
-    tau1 = tau - math.sqrt(1 - S * S) / n
-    tau2 = tau + math.sqrt(1 - S * S) / n
+    tau1 = tau - math.sqrt(1 - s * s) / n
+    tau2 = tau + math.sqrt(1 - s * s) / n
     return {'tau1': tau1, 'tau2': tau2}
 
 
@@ -496,21 +498,20 @@ def refine_estimate(e, t):
     Description:
         This function uses the provided Besselian elements and an initial time estimate to calculate more accurate contact times (tau1 and tau2) for the eclipse. It is typically used after obtaining rough estimates to improve the precision of eclipse timing calculations.
     """
-    X = e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t
-    Y = e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t
-    d = e['d0'] + e['d1'] * t + e['d2'] * t * t
-    Xp = e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t
-    Yp = e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t
+    x = e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t
+    y = e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t
+    xp = e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t
+    yp = e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t
     omega = 1 / math.sqrt(1 - 0.006694385 * math.cos(e['d0'] * rad) * math.cos(e['d0'] * rad))
-    u = X
-    a = Xp
-    v = omega * Y
-    b = omega * Yp
+    u = x
+    a = xp
+    v = omega * y
+    b = omega * yp
     n = math.sqrt(a * a + b * b)
-    S = (a * v - u * b) / n
+    s = (a * v - u * b) / n
     tau = -(u * a + v * b) / (n * n)
-    tau1 = tau - math.sqrt(1 - S * S) / n
-    tau2 = tau + math.sqrt(1 - S * S) / n
+    tau1 = tau - math.sqrt(1 - s * s) / n
+    tau2 = tau + math.sqrt(1 - s * s) / n
     return {'tau1': tau1, 'tau2': tau2}
 
 
@@ -555,14 +556,14 @@ def compute_rise_set_point(be, gamma):
     """
     eta = math.cos(gamma)
     xi = math.sin(gamma)
-    sind = math.sin(be['d'] * rad)
-    cosd = math.cos(be['d'] * rad)
-    cosphi1sintheta = xi
-    cosphi1costheta = -eta * sind
-    theta = math.atan2(cosphi1sintheta, cosphi1costheta)
+    sin_d = math.sin(be['d'] * rad)
+    cos_d = math.cos(be['d'] * rad)
+    cos_phi1_sin_theta = xi
+    cos_phi1_cos_theta = -eta * sin_d
+    theta = math.atan2(cos_phi1_sin_theta, cos_phi1_cos_theta)
     lam = -(be['H'] * rad - theta)
-    sinphi = eta * cosd
-    phi = math.asin(sinphi)
+    sin_phi = eta * cos_d
+    phi = math.asin(sin_phi)
     return {'lat': phi / rad, 'lon': lam / rad if lam <= math.pi else lam / rad - 360}
 
 def compute_rise_set_points(be):
@@ -575,13 +576,12 @@ def compute_rise_set_points(be):
     Returns:
         list: A list containing two dictionaries, each with 'lat' (latitude in degrees) and 'lon' (longitude in degrees) for the rise and set points.
     """
-    m = math.sqrt(be['X'] * be['X'] + be['Y'] * be['Y'])
-    M = math.atan2(be['X'], be['Y'])
-    cos_gamma_M = (m * m + 1 - be['L1'] * be['L1']) / (2 * m)
-    gamma_M = math.acos(cos_gamma_M)
-    gamma_M2 = 2 * math.pi - gamma_M
-    gamma1 = gamma_M + M
-    gamma2 = gamma_M2 + M
+    m = math.atan2(be['X'], be['Y'])
+    cos_gamma_m = (m * m + 1 - be['L1'] * be['L1']) / (2 * m)
+    gamma_m = math.acos(cos_gamma_m)
+    gamma_m2 = 2 * math.pi - gamma_m
+    gamma1 = gamma_m + m
+    gamma2 = gamma_m2 + m
     ll1 = compute_rise_set_point(be, gamma1)
     ll2 = compute_rise_set_point(be, gamma2)
     return [ll1, ll2]
@@ -605,62 +605,62 @@ def get_rise_set_curves():
     list2 = []
     list3 = []
     list4 = []
-    maxlat = -100
-    minlat = 100
-    nStart = None
-    sStart = None
+    max_lat = -100
+    min_lat = 100
+    n_start = None
+    s_start = None
     while t < .5:
         be = get_elements(e, t, 0, 0, 0)
         p = compute_rise_set_points(be)
         if not math.isnan(p[0]['lat']):
             list1.append(p[0])
-            if p[0]['lat'] > maxlat:
-                maxlat = p[0]['lat']
-                nStart = p[0]['lon']
-            if p[0]['lat'] < minlat:
-                minlat = p[0]['lat']
-                sStart = p[0]['lon']
+            if p[0]['lat'] > max_lat:
+                max_lat = p[0]['lat']
+                n_start = p[0]['lon']
+            if p[0]['lat'] < min_lat:
+                min_lat = p[0]['lat']
+                s_start = p[0]['lon']
         if not math.isnan(p[1]['lat']):
             list2.insert(0, p[1])
-            if p[1]['lat'] < minlat:
-                minlat = p[1]['lat']
-                sStart = p[1]['lon']
+            if p[1]['lat'] < min_lat:
+                min_lat = p[1]['lat']
+                s_start = p[1]['lon']
         t += .01
     t = .5
-    maxlat = -100
-    minlat = 100
-    nEnd = None
-    sEnd = None
+    max_lat = -100
+    min_lat = 100
+    n_end = None
+    s_end = None
     while t < 4:
         be = get_elements(e, t, 0, 0, 0)
         p = compute_rise_set_points(be)
         if not math.isnan(p[0]['lat']):
             list3.append(p[0])
-            if p[0]['lat'] > maxlat:
-                maxlat = p[0]['lat']
-                nEnd = p[0]['lon']
-            if p[0]['lat'] < minlat:
-                minlat = p[0]['lat']
-                sEnd = p[0]['lon']
+            if p[0]['lat'] > max_lat:
+                max_lat = p[0]['lat']
+                n_end = p[0]['lon']
+            if p[0]['lat'] < min_lat:
+                min_lat = p[0]['lat']
+                s_end = p[0]['lon']
         if not math.isnan(p[1]['lat']):
             list4.insert(0, p[1])
-            if p[1]['lat'] > maxlat:
-                maxlat = p[1]['lat']
-                nEnd = p[1]['lon']
-            if p[1]['lat'] < minlat:
-                minlat = p[1]['lat']
-                sEnd = p[1]['lon']
+            if p[1]['lat'] > max_lat:
+                max_lat = p[1]['lat']
+                n_end = p[1]['lon']
+            if p[1]['lat'] < min_lat:
+                min_lat = p[1]['lat']
+                s_end = p[1]['lon']
         t += .01
-    return {'setting': list1 + list2, 'rising': list3 + list4, 'nStart': nStart, 'sStart': sStart, 'nEnd': nEnd, 'sEnd': sEnd}
+    return {'setting': list1 + list2, 'rising': list3 + list4, 'nStart': n_start, 'sStart': s_start, 'nEnd': n_end, 'sEnd': s_end}
 
-def get_limits_by_longitude_as_list(e, northsouth, G, start_lon, end_lon):
+def get_limits_by_longitude_as_list(e, north_south, g, start_lon, end_lon):
     """
     Computes eclipse limit points (latitude and longitude) for a range of longitudes, both at the equator and near the poles, for a given eclipse and direction.
 
     Parameters:
         e (dict): Besselian element coefficients for the eclipse.
-        northsouth (int): Direction indicator (`+1` for north, `-1` for south).
-        G (float): Eclipse magnitude or related parameter.
+        north_south (int): Direction indicator (`+1` for north, `-1` for south).
+        g (float): Eclipse magnitude or related parameter.
         start_lon (float): Starting longitude in degrees.
         end_lon (float): Ending longitude in degrees.
 
@@ -678,8 +678,8 @@ def get_limits_by_longitude_as_list(e, northsouth, G, start_lon, end_lon):
     step = 0.01
     i = start_lon
     while i <= end_lon:
-        eq = get_limits_for_longitude(e, i, northsouth, G, 0)
-        polar = get_limits_for_longitude(e, i, northsouth, G, 89.9 * (1 if e['Y0'] >= 0 else -1))
+        eq = get_limits_for_longitude(e, i, north_south, g, 0)
+        polar = get_limits_for_longitude(e, i, north_south, g, 89.9 * (1 if e['Y0'] >= 0 else -1))
         if polar is not None and eq is not None:
             if abs(eq['lat'] - polar['lat']) < 0.1:
                 eq_points.append(eq)
@@ -692,15 +692,15 @@ def get_limits_by_longitude_as_list(e, northsouth, G, start_lon, end_lon):
         i += step
     return [eq_points, polar_points]
 
-def get_limits_for_longitude(e, lam, northsouth, G, start_phi):
+def get_limits_for_longitude(e, lam, north_south, g, start_phi):
     """
     Computes the eclipse limit point (latitude and longitude) for a given longitude and direction.
 
     Args:
         e (dict): Dictionary containing Besselian element coefficients for the eclipse.
         lam (float): Longitude (in degrees) for which to compute the limit.
-        northsouth (int): Direction indicator (+1 for north, -1 for south).
-        G (float): Eclipse magnitude or related parameter.
+        north_south (int): Direction indicator (+1 for north, -1 for south).
+        g (float): Eclipse magnitude or related parameter.
         start_phi (float): Starting latitude (in degrees) for the iterative calculation.
 
     Returns:
@@ -712,55 +712,54 @@ def get_limits_for_longitude(e, lam, northsouth, G, start_phi):
     delta_phi = 1000
     tau = 1000
     while (abs(tau) > 0.0001 or abs(delta_phi) > 0.0001) and i < 20:
-        X = e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t
-        Y = e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t
+        x = e['X0'] + e['X1'] * t + e['X2'] * t * t + e['X3'] * t * t * t
+        y = e['Y0'] + e['Y1'] * t + e['Y2'] * t * t + e['Y3'] * t * t * t
         d = e['d0'] + e['d1'] * t + e['d2'] * t * t
-        M = e['M0'] + e['M1'] * t
-        Xp = e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t
-        Yp = e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t
-        L1 = e['L10'] + e['L11'] * t + e['L12'] * t * t
-        L2 = e['L20'] + e['L21'] * t + e['L22'] * t * t
-        H = M + lam - 0.00417807 * e['Δt']
+        m = e['M0'] + e['M1'] * t
+        xp = e['X1'] + 2 * e['X2'] * t + 3 * e['X3'] * t * t
+        yp = e['Y1'] + 2 * e['Y2'] * t + 3 * e['Y3'] * t * t
+        l1 = e['L10'] + e['L11'] * t + e['L12'] * t * t
+        l2 = e['L20'] + e['L21'] * t + e['L22'] * t * t
+        h = m + lam - 0.00417807 * e['Δt']
         height = 0
         u1 = math.atan(0.99664719 * math.tan(phi * rad)) / rad
         rho_sin_phip = 0.99664719 * math.sin(u1 * rad) + height / 6378140 * math.sin(phi * rad)
         rho_cos_phip = math.cos(u1 * rad) + height / 6378140 * math.cos(phi * rad)
-        xi = rho_cos_phip * math.sin(H * rad)
-        eta = rho_sin_phip * math.cos(d * rad) - rho_cos_phip * math.cos(H * rad) * math.sin(d * rad)
-        zeta = rho_sin_phip * math.sin(d * rad) + rho_cos_phip * math.cos(H * rad) * math.cos(d * rad)
-        xi_p = 0.01745329 * e['M1'] * rho_cos_phip * math.cos(H * rad)
+        xi = rho_cos_phip * math.sin(h * rad)
+        eta = rho_sin_phip * math.cos(d * rad) - rho_cos_phip * math.cos(h * rad) * math.sin(d * rad)
+        zeta = rho_sin_phip * math.sin(d * rad) + rho_cos_phip * math.cos(h * rad) * math.cos(d * rad)
+        xi_p = 0.01745329 * e['M1'] * rho_cos_phip * math.cos(h * rad)
         eta_p = 0.01745329 * (e['M1'] * xi * math.sin(d * rad) - zeta * e['d1'])
-        L1p = L1 - zeta * e['tanf1']
-        L2p = L2 - zeta * e['tanf2']
-        u = X - xi
-        v = Y - eta
-        a = Xp - xi_p
-        b = Yp - eta_p
+        l1p = l1 - zeta * e['tanf1']
+        l2p = l2 - zeta * e['tanf2']
+        u = x - xi
+        v = y - eta
+        a = xp - xi_p
+        b = yp - eta_p
         n = math.sqrt(a * a + b * b)
         tau = - (u * a + v * b) / (n * n)
-        W = (v * a - u * b) / n
-        Q = ((b * math.sin(H * rad) * rho_sin_phip + a * (math.cos(H * rad) * math.sin(d * rad) * rho_sin_phip + math.cos(d * rad) * rho_cos_phip)))/(57.29578 * n)
-        E = L1p - G * (L1p + L2p)
-        delta_phi = (W + northsouth * abs(E)) / Q
+        w = (v * a - u * b) / n
+        q = (b * math.sin(h * rad) * rho_sin_phip + a * (math.cos(h * rad) * math.sin(d * rad) * rho_sin_phip + math.cos(d * rad) * rho_cos_phip)) / (57.29578 * n)
+        e = l1p - g * (l1p + l2p)
+        delta_phi = (w + north_south * abs(e)) / q
         t = t + tau
         phi = phi + delta_phi
         i += 1
     if abs(tau) > 0.0001 or abs(delta_phi) > 0.0001:
         return None
-    UT = e['T0'] + t
     phi = (90 + phi) % 180
     if phi < 0:
         phi += 180
     phi -= 90
     return {'t': t, 'lat': phi, 'lon': lam}
 
-def compute_outline_point(be, Q, umbra):
+def compute_outline_point(be, q, umbra):
     """
     Computes the geographic coordinates (latitude and longitude) of a point on the outline curve of the eclipse shadow for a given position angle.
 
     Args:
         be (dict): Dictionary containing Besselian elements for the eclipse at a given time.
-        Q (float): Position angle (in degrees) for the outline curve point.
+        q (float): Position angle (in degrees) for the outline curve point.
         umbra (bool): If True, computes for the umbral shadow (L2); if False, computes for the penumbral shadow (L1).
 
     Returns:
@@ -768,40 +767,40 @@ def compute_outline_point(be, Q, umbra):
     """
     # The Explanatory Supplement to the Astronomical Ephemeris 1961
     e = math.sqrt(0.00672267)
-    sind = math.sin(be['d'] * rad)
-    cosd = math.cos(be['d'] * rad)
-    rho1 = math.sqrt(1 - e * e * cosd * cosd)
-    rho2 = math.sqrt(1 - e * e * sind * sind)
-    sind1 = sind / rho1
-    cosd1 = math.sqrt(1 - e * e) * cosd / rho1
-    sind1d2 = e * e * sind * cosd / (rho1 * rho2)
-    cosd1d2 = math.sqrt(1 - e * e) / (rho1 * rho2)
-    Q *= rad
-    sinQ = math.sin(Q)
-    cosQ = math.cos(Q)
-    tanf = be['tanf1']
+    sin_d = math.sin(be['d'] * rad)
+    cos_d = math.cos(be['d'] * rad)
+    rho1 = math.sqrt(1 - e * e * cos_d * cos_d)
+    rho2 = math.sqrt(1 - e * e * sin_d * sin_d)
+    sin_d1 = sin_d / rho1
+    cos_d1 = math.sqrt(1 - e * e) * cos_d / rho1
+    sin_d1d2 = e * e * sin_d * cos_d / (rho1 * rho2)
+    cos_d1d2 = math.sqrt(1 - e * e) / (rho1 * rho2)
+    q *= rad
+    sin_q = math.sin(q)
+    cos_q = math.cos(q)
+    tan_f = be['tanf1']
     l = be['L1']
     if umbra:
         l = be['L2']
-        tanf = be['tanf2']
-    xi = be['X'] - l * sinQ
-    eta = (be['Y'] - l * cosQ) / rho1
+        tan_f = be['tanf2']
+    xi = be['X'] - l * sin_q
+    eta = (be['Y'] - l * cos_q) / rho1
     zeta1 = math.sqrt(1 - xi * xi - eta * eta)
-    zeta = rho2 * (zeta1 * cosd1d2 - eta * sind1d2)
-    L = l - zeta * tanf
-    xi = be['X'] - L * sinQ
-    eta = (be['Y'] - L * cosQ) / rho1
+    zeta = rho2 * (zeta1 * cos_d1d2 - eta * sin_d1d2)
+    l = l - zeta * tan_f
+    xi = be['X'] - l * sin_q
+    eta = (be['Y'] - l * cos_q) / rho1
     zeta1 = math.sqrt(1 - xi * xi - eta * eta)
-    zeta = rho2 * (zeta1 * cosd1d2 - eta * sind1d2)
-    L = l - zeta * tanf
-    xi = be['X'] - L * sinQ
-    eta = (be['Y'] - L * cosQ) / rho1
+    zeta = rho2 * (zeta1 * cos_d1d2 - eta * sin_d1d2)
+    l = l - zeta * tan_f
+    xi = be['X'] - l * sin_q
+    eta = (be['Y'] - l * cos_q) / rho1
     zeta1 = math.sqrt(1 - xi * xi - eta * eta)
-    cosphi1sintheta = xi
-    cosphi1costheta = zeta1 * cosd1 - eta * sind1
-    theta = math.atan2(cosphi1sintheta, cosphi1costheta) / rad
+    cos_phi1_sin_theta = xi
+    cos_phi1_cos_theta = zeta1 * cos_d1 - eta * sin_d1
+    theta = math.atan2(cos_phi1_sin_theta, cos_phi1_cos_theta) / rad
     lam = be['H'] - theta
-    phi1 = math.asin(eta * cosd1 + zeta1 * sind1)
+    phi1 = math.asin(eta * cos_d1 + zeta1 * sin_d1)
     phi = math.atan((1 / math.sqrt(1 - e * e)) * math.tan(phi1)) / rad
     if phi > 90:
         phi -= 180
@@ -811,7 +810,7 @@ def compute_outline_point(be, Q, umbra):
         lam -= 360
     return {'lat': phi, 'lon': -lam}
 
-def propper_angle(d):
+def proper_angle(d):
     """
     Normalizes an angle to the range [0, 360) degrees.
 
@@ -819,7 +818,7 @@ def propper_angle(d):
         d (float): Angle in degrees.
 
     Returns:
-        float: The normalized angle in degrees, within the range [0, 360).
+        float: The normalized angle in degrees, within the range [0, 360].
     """
     t = d
     if t < 0:
@@ -887,16 +886,16 @@ def get_outline_curve_q_range(be, l):
     """
     msq = be['X'] * be['X'] + be['Y'] * be['Y']
     m = math.sqrt(msq)
-    M = math.atan2(be['X'], be['Y'])
+    capital_m = math.atan2(be['X'], be['Y'])
     denom = 2 * l * m
     numer = m * m + l * l - 1
-    cosQM = numer / denom
+    cos_qm = numer / denom
     try:
-        Q1 = propper_angle((math.acos(cosQM) + M) / rad)
-        Q2 = propper_angle((-math.acos(cosQM) + M) / rad)
+        q1 = proper_angle((math.acos(cos_qm) + capital_m) / rad)
+        q2 = proper_angle((-math.acos(cos_qm) + capital_m) / rad)
     except ValueError:
-        Q2 = 0
-        Q1 = 360
-    if Q1 < Q2:
-        Q1 += 360
-    return {'start': Q2, 'end': Q1}
+        q2 = 0
+        q1 = 360
+    if q1 < q2:
+        q1 += 360
+    return {'start': q2, 'end': q1}

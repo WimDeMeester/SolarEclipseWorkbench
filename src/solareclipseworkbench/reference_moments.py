@@ -98,12 +98,12 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
     sunset = ReferenceMomentInfo(sunset.utc_datetime()[0], az, alt.degrees, timezone)
     timings['sunset'] = sunset
 
-    first_contact_alt, first_contact_az = calculate_alt_az(earth, loc, result['UTFirstContact'], sun_ephem, time, ts)
-    last_contact_alt, last_contact_az = calculate_alt_az(earth, loc, result['UTLastContact'], sun_ephem, time, ts)
+    first_contact_alt, first_contact_az = calculate_alt_az(earth, loc, result['ut_first_contact'], sun_ephem, time, ts)
+    last_contact_alt, last_contact_az = calculate_alt_az(earth, loc, result['ut_last_contact'], sun_ephem, time, ts)
 
     # Check if altitude at one of the moments is > 0.0
     if result['h'] > 0.0 or first_contact_alt > 0.0 or last_contact_alt > 0.0:
-        sc_h, sc_m, sc_s = ut_to_hms(result['UTFirstContact'])
+        sc_h, sc_m, sc_s = ut_to_hms(result['ut_first_contact'])
         sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
 
         c1 = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
@@ -111,10 +111,10 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
                                                      first_contact_az, first_contact_alt.degrees, timezone)
         timings["C1"] = c1
 
-        if result['UTSecondContact'] != result['UTThirdContact']:
-            second_contact_alt, second_contact_az = calculate_alt_az(earth, loc, result['UTSecondContact'], sun_ephem,
+        if result['ut_second_contact'] != result['ut_third_contact']:
+            second_contact_alt, second_contact_az = calculate_alt_az(earth, loc, result['ut_second_contact'], sun_ephem,
                                                                    time, ts)
-            sc_h, sc_m, sc_s = ut_to_hms(result['UTSecondContact'])
+            sc_h, sc_m, sc_s = ut_to_hms(result['ut_second_contact'])
             sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
 
             c2 = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
@@ -122,9 +122,9 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
                                      second_contact_az, second_contact_alt.degrees, timezone)
             timings["C2"] = c2
 
-        max_contact_alt, max_contact_az = calculate_alt_az(earth, loc, result['UTMaximum'], sun_ephem,
+        max_contact_alt, max_contact_az = calculate_alt_az(earth, loc, result['ut_maximum'], sun_ephem,
                                                                time, ts)
-        sc_h, sc_m, sc_s = ut_to_hms(result['UTMaximum'])
+        sc_h, sc_m, sc_s = ut_to_hms(result['ut_maximum'])
         sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
 
         maximum = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
@@ -132,10 +132,10 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
                                  max_contact_az, max_contact_alt.degrees, timezone)
         timings["MAX"] = maximum
 
-        if result['UTSecondContact'] != result['UTThirdContact']:
-            third_contact_alt, third_contact_az = calculate_alt_az(earth, loc, result['UTThirdContact'], sun_ephem,
+        if result['ut_second_contact'] != result['ut_third_contact']:
+            third_contact_alt, third_contact_az = calculate_alt_az(earth, loc, result['ut_third_contact'], sun_ephem,
                                                                    time, ts)
-            sc_h, sc_m, sc_s = ut_to_hms(result['UTThirdContact'])
+            sc_h, sc_m, sc_s = ut_to_hms(result['ut_third_contact'])
             sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
 
             c3 = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
@@ -143,9 +143,9 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
                                      third_contact_az, third_contact_alt.degrees, timezone)
             timings["C3"] = c3
 
-            timings["duration"] = timedelta(hours=(result['UTThirdContact'] - result['UTSecondContact']))
+            timings["duration"] = timedelta(hours=(result['ut_third_contact'] - result['ut_second_contact']))
 
-        sc_h, sc_m, sc_s = ut_to_hms(result['UTLastContact'])
+        sc_h, sc_m, sc_s = ut_to_hms(result['ut_last_contact'])
         sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
 
         c4 = ReferenceMomentInfo(datetime(time.datetime.year, time.datetime.month, time.datetime.day,
