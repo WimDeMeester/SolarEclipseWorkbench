@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solareclipseworkbench"
-version = "1.1.1"
+version = "1.2.0"
 description = "Tools to photograph solar eclipses"
 authors = ["Sara Regibo <sararegibo@gmail.com>", "Wim De Meester <deepskywim@gmail.com"]
 license = "GPL-3.0-or-later"
@@ -9,11 +9,11 @@ repository = "https://github.com/AstroWimSara/SolarEclipseWorkbench"
 keywords = ["astronomy", "photography", "solar eclipse"]
 
 [tool.poetry.dependencies]
-python = "^3.9"
-astropy = "^6.0.0"
+python = "^3.11"
+astropy = "^7.0.0"
 geopandas = "^0.14.2"
 matplotlib = "^3.8.2"
-gphoto2 = "^2.5.0"
+gphoto2 = "^2.6.0"
 apscheduler = "^3.10.4"
 geodatasets = "^2023.12.0"
 jplephem = "^2.21"
@@ -25,6 +25,8 @@ astronomy-engine = "^2.1.19"
 playsound = {git = "https://github.com/taconi/playsound.git"}
 pyqt6 = "^6.6.1"
 astronomy = "^0.0.1"
+pynmea2 = "^1.19.0"
+pyserial = "^3.5"
 
 
 [build-system]

@@ -85,7 +85,8 @@ cd SolarEclipseWorkbench
 
 ```bash
 ~/.local/bin/poetry install
-~/.local/bin/poetry shell
+~/.local/bin/poetry env activate
+# This will show the command to execute the environment.  Starts with source ~/.local/share/virtualenvs/SolarEclipseWorkbench-<hash>/bin/activate
 ```
 
 - Eventually, to make the sound notifications a bit faster, install pygobject:
@@ -123,8 +124,9 @@ git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
 
 ```bash
 cd SolarEclipseWorkbench
-poetry install
-poetry shell
+~/.local/bin/poetry install
+~/.local/bin/poetry env activate
+# This will show the command to execute the environment.  Starts with source ~/.local/share/virtualenvs/SolarEclipseWorkbench-<hash>/bin/activate
 ```
 
 - Install needed packages
@@ -179,22 +181,16 @@ sudo usermod -aG plugdev $USER
 
 ## Running Solar Eclipse Workbench
 
-- Before starting Solar Eclipse Workbench, make sure to enable the correct python environment by executing the following command in the installation directory:
-
-```bash
-~/.local/bin/poetry shell
-```
-
 - The main script to start is `gui.py`.  You can add a parameters to set the needed parameters for the eclipse.  Some examples:
 
 ```bash
 # On macos, start the commands with sudo
-sudo python src/solareclipseworkbench/gui.py -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
-sudo python src/solareclipseworkbench/gui.py
+sudo ~/.local/bin/poetry run python src/solareclipseworkbench/gui.py -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
+sudo ~/.local/bin/poetry run python src/solareclipseworkbench/gui.py
 
 # In Linux or using WSL on Windows, start the command without sudo
-python src/solareclipseworkbench/gui.py -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
-python src/solareclipseworkbench/gui.py
+python ~/.local/bin/poetry run src/solareclipseworkbench/gui.py -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
+python ~/.local/bin/poetry run src/solareclipseworkbench/gui.py
 ```
 
 - There is a problem with `gphoto2`.  On macOS, Solar Eclipse Workbench needs to be started with sudo rights to be able to connect to the cameras.  In Linux (or Windows using wsl), sudo should not be used.
@@ -328,6 +324,18 @@ The following cameras are tested:
 
 It is possible to take pictures in burst mode.  The speed is limited by the speed of the camera (and card).
 
+### Reference moments
+
+The reference moments of the eclipse that used in the scripts are:
+  - C1: first contact
+  - C2: second contact
+  - MAX: maximum eclipse
+  - C3: third contact
+  - C4: fourth contact
+  - SUNRISE: sunrise
+  - SUNSET: sunset
+  - LAST: Reference the time to the last command in the script.
+
 ### Commands
 
 Solar Eclipse Workbench can use the following commands:
@@ -355,6 +363,12 @@ This command will play the C4_IN_3_SECONDS sound file 3 seconds before fourth co
 - **sync_cameras** - Read out the camera settings
 
 ```sync_cameras, C2, -, 00:00:04, "Sync the camera status"```
+
+- **command** - Execute a command on the computer.  This can be used to execute a script or to run a program.
+
+```command, C1, -, 00:00:05, "/home/user/scripts/print_date.sh", "Print the date"```
+
+This command will execute the script `print_date.sh` 5 seconds before first contact (C1).  The script should be executable and should not require any user input.
 
 - **for** - Repeat a command a number of times
 
@@ -399,6 +413,10 @@ endfor
 ## Converting scripts from Solar Eclipse Maestro
 
 Scripts from Solar Eclipse Maestro are converted automatically to scripts that can be used by Solar Eclipse Workbench.
+
+## Error handling
+
+If something goes wrong, an error message will be logged in the log file `/tmp/solareclipseworkbench.log`.
 
 ## Image attributions
 

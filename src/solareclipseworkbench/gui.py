@@ -56,6 +56,7 @@ BEFORE_AFTER = {
 REFERENCE_MOMENTS = ["C1", "C2", "MAX", "C3", "C4", "sunset", "sunrise"]
 
 LOGGER = logging.getLogger("Solar Eclipse Workbench UI")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%a, %d %b %Y %H:%M:%S', filename="/tmp/solareclipseworkbench.log", filemode='w')
 
 
 class SolarEclipseModel:
@@ -1679,6 +1680,9 @@ class JobsTableModel(QAbstractTableModel, Observable):
 
                 elif job.func.__name__ == "voice_prompt":
                     job_string = f"{job.func.__name__}({', '.join(job.args).strip()})"
+
+                elif job.func.__name__ == "execute_command":
+                    job_string = f"command({', '.join(job.args).strip()})"
 
                 self.execution_times_utc_as_datetime.append(execution_time_utc)
                 formatted_execution_time_utc = format_time(execution_time_utc, self.time_format)
