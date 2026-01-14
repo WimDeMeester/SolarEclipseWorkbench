@@ -1,10 +1,6 @@
-for,C1,C4,10,-10.0,+10.0
-take_picture,(VAR), +, 0:00:00.0, Canon EOS 80D, 1/40, 6, 100, "Partial C1-C4"
-take_picture,(VAR), +, 0:00:00.0, Canon EOS R, 1/800, 8, 100, "Partial C1-C4"
-endfor
-for,C1,C4,600,-25.0,10.0
-sync_cameras,(VAR), +, 00:00:00, "Sync the camera status"
-endfor
+command, C1, -, 00:00:55, "/home/wim/print_date.sh", Test command
+voice_prompt, SUNRISE, -, 00:01:00, C1_IN_60_SECONDS, 1 minute to SUNRISE
+voice_prompt, LAST, -, 00:01:00, C1_IN_60_SECONDS, 1 minute before last command
 voice_prompt, C1, -, 00:01:00, C1_IN_60_SECONDS, "1 minute before C1 voice prompt"
 voice_prompt, C1, -, 00:00:40, C1_IN_40_SECONDS, "40 seconds before C1 voice prompt"
 voice_prompt, C1, -, 00:00:30, C1_IN_30_SECONDS, "30 seconds before C1 voice prompt"
@@ -36,3 +32,4 @@ voice_prompt, C4, -, 00:00:03, C4_IN_3_SECONDS, "3 seconds before C4 voice promp
 voice_prompt, C4, -, 00:00:02, C4_IN_2_SECONDS, "2 seconds before C4 voice prompt"
 voice_prompt, C4, -, 00:00:01, C4_IN_1_SECOND, "1 second before C4 voice prompt"
 voice_prompt, C4, -, 00:00:00, C4, "C4 voice prompt"
+voice_prompt, LAST, +, 00:00:22, LAST_IN_60_SECONDS, "22 seconds after end"

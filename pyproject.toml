@@ -1,12 +1,17 @@
 [tool.poetry]
 name = "solareclipseworkbench"
-version = "1.2.0"
+version = "1.2.2"
 description = "Tools to photograph solar eclipses"
 authors = ["Sara Regibo <sararegibo@gmail.com>", "Wim De Meester <deepskywim@gmail.com"]
 license = "GPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/AstroWimSara/SolarEclipseWorkbench"
 keywords = ["astronomy", "photography", "solar eclipse"]
+include = [
+    "solareclipseworkbench/sound/**",
+    "solareclipseworkbench/example_scripts/**",
+    "solareclipseworkbench/img/**",
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -22,7 +27,7 @@ skyfield = "^1.47"
 skyfield-data = "^5.0.0"
 timezonefinder = "^6.2.0"
 astronomy-engine = "^2.1.19"
-playsound = {git = "https://github.com/taconi/playsound.git"}
+playsound3 = "^3.2.4"
 pyqt6 = "^6.6.1"
 astronomy = "^0.0.1"
 pynmea2 = "^1.19.0"
@@ -32,3 +37,4 @@ pyserial = "^3.5"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
