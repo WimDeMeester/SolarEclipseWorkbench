@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- (Describe any changes here)
+
+### Changed
+- (Describe any changes here)
+
+### Fixed
+- (Describe any changes here)
+
+## [1.2.3] - 2026-01-15
+
+### Added
 - Add LAST command to the scripts
 - Execute external commands from scripts
 - Installation using `pip install solareclipseworkbench`
@@ -16,13 +27,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Calculate the Besselian elements directly in the code.
 - Adapt solar radius to the most recent value of 959.95 ±0.05 arcseconds as found by the Besselian elements team (https://www.besselianelements.com/).
 
-### Changed
-- (Describe any changes here)
-
-### Fixed
-- (Describe any bug fixes here)
-
----
 
 ## [1.1.1] - 2025-04-28
 

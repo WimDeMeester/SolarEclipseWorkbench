@@ -119,7 +119,7 @@ sudo apt-get install gphoto2/noble libgphoto2 python3-gphoto2
 sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
 pip install pygobject
 ```
-- 
+
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
@@ -519,7 +519,7 @@ pip install pygobject
 
 ## Create and upload a new pip package
 
-To create a new pip package, execute the following commands in the Solar Eclipse Workbench directory:
+To create a new pip package, first change the version number in pyproject.toml and then execute the following commands in the Solar Eclipse Workbench directory:
 
 ```bash
 poetry build
