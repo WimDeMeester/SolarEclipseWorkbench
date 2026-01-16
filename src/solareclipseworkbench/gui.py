@@ -897,10 +897,12 @@ class SolarEclipseController(Observer):
 
         elif isinstance(changed_object, EclipsePopup):
             eclipse_date = changed_object.eclipse_combobox.currentText()
+            # Only take the first 10 characters of the date string
+            eclipse_date = eclipse_date[:11]
             self.model.set_eclipse_date(
                 Time(datetime.datetime.strptime(eclipse_date, DATE_FORMATS[self.view.date_format])))
 
-            self.view.eclipse_date.setText(changed_object.eclipse_combobox.currentText())
+            self.view.eclipse_date.setText(changed_object.eclipse_combobox.currentText()[:11])
             return
 
         elif isinstance(changed_object, SimulatorPopup):
@@ -1120,7 +1122,6 @@ class SolarEclipseController(Observer):
         """
 
         if eclipse_date:
-
             if date_format:
                 dt = datetime.datetime.strptime(eclipse_date, DATE_FORMATS[date_format])
                 date = datetime.datetime.strftime(dt, "%Y-%m-%d")
@@ -1272,8 +1273,16 @@ class EclipsePopup(QWidget, Observable):
 
         from solareclipseworkbench.utils import calculate_next_solar_eclipses
         for eclipse_date in calculate_next_solar_eclipses(20):
-            formatted_eclipse_date = datetime.datetime.strptime(eclipse_date, "%d/%m/%Y").strftime(date_format)
-            formatted_eclipse_dates.append(formatted_eclipse_date)
+            formatted_eclipse_date = datetime.datetime.strptime(eclipse_date['date'], "%d/%m/%Y").strftime(date_format) + " - " + eclipse_date['type']
+            if eclipse_date['type'] == "T" or eclipse_date['type'] == "A" or eclipse_date['type'] == "H":
+                # For total, annular, and hybrid eclipses, also show the duration
+                duration = eclipse_date["duration"]
+                # Convert duration to minutes:seconds
+                minutes, seconds = divmod(duration, 60)
+                formatted_eclipse_date += f" - {int(minutes)}m {int(seconds):02}s"
+                formatted_eclipse_dates.append(formatted_eclipse_date)
+            else:
+                formatted_eclipse_dates.append(formatted_eclipse_date + " - " + str(int(eclipse_date["magnitude"] * 100)) + "%")
 
         self.eclipse_combobox.addItems(formatted_eclipse_dates)
 

@@ -7,17 +7,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
-- Add LAST command to the scripts
-- Execute external commands from scripts
-- Installation using `pip install solareclipseworkbench`
+- (Describe any changes here)
 
 ### Changed
 - (Describe any changes here)
 
 ### Fixed
-- (Describe any bug fixes here)
+- (Describe any changes here)
 
----
+## [1.2.3] - 2026-01-15
+
+### Added
+- Add LAST command to the scripts
+- Execute external commands from scripts
+- Installation using `pip install solareclipseworkbench`
+- Calculate the reference moments in Solar Eclipse Workbench, not using an external library anymore.  The Besselian elements are taken from the Five Millennium Canon of Solar Eclipses, which is available at https://eclipse.gsfc.nasa.gov/SEcat5/SEcat5.html.
+- Extra information about the eclipses (maximum duration, type of eclipse, etc.) is now available in the drop-down menu to select eclipses.
+- Added first unittests for the solar_eclipse module.
+- Calculate the Besselian elements directly in the code.
+- Adapt solar radius to the most recent value of 959.95 ±0.05 arcseconds as found by the Besselian elements team (https://www.besselianelements.com/).
+
 
 ## [1.1.1] - 2025-04-28
 
