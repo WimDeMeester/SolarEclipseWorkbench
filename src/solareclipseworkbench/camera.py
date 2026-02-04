@@ -13,6 +13,12 @@ class CameraError(Exception):
     pass
 
 
+def _set_gp_config(camera, config, context):
+    """Set camera config using underlying gphoto object when wrapped by adapter."""
+    target = camera._camera if hasattr(camera, '_camera') else camera
+    return gp.gp_camera_set_config(target, config, context)
+
+
 class CameraSettings:
 
     def __init__(self, camera_name: str, shutter_speed: str, aperture: str, iso: int):
@@ -30,6 +36,198 @@ class CameraSettings:
         self.iso = iso
 
 
+from abc import ABC, abstractmethod
+from typing import Any, Tuple, Optional
+
+
+class BaseCamera(ABC):
+    """Abstract base camera class. Implementations should provide the
+    same public surface so higher-level code can use any camera
+    interchangeably.
+    """
+
+    def __init__(self, name: str = ""):
+        self.name = name
+        self._connected = False
+
+    @abstractmethod
+    def connect(self) -> None:
+        pass
+
+    @abstractmethod
+    def disconnect(self) -> None:
+        pass
+
+    @abstractmethod
+    def configure(self, **kwargs: Any) -> None:
+        pass
+
+    @abstractmethod
+    def capture(self):
+        pass
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+
+class VirtualCamera(BaseCamera):
+    """Simple virtual camera for simulator mode. Returns a plain
+    numpy image (H, W, 3) of the configured resolution. This is a
+    minimal stub that will be extended with modes (static, scripted,
+    generated) in subsequent steps.
+    """
+
+    def __init__(self):
+        super().__init__(name="VirtualCamera")
+
+    def connect(self) -> None:
+        self._connected = True
+
+    def disconnect(self) -> None:
+        self._connected = False
+
+    def configure(self, **kwargs: Any) -> None:
+        # Accept resolution, mode, source, fps, timestamp_mode
+        for k, v in kwargs.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
+
+    def capture(self):
+        """Return a single RGB frame as a numpy.ndarray (H, W, 3).
+
+        Raises CameraError if not connected.
+        """
+        if not self._connected:
+            raise CameraError("VirtualCamera is not connected")
+
+        return
+
+    # GPhoto-style stubs so the VirtualCamera can be used in places where
+    # code expects gphoto Camera-like methods.
+    class _WidgetStub:
+        def __init__(self, name: str, value: Any):
+            self._name = name
+            self._value = value
+
+        def get_value(self):
+            return self._value
+
+        def set_value(self, v: Any):
+            self._value = v
+
+        def get_type(self):
+            # Mimic GP_WIDGET_DATE for datetime if value is numeric
+            try:
+                float(self._value)
+                return gp.GP_WIDGET_DATE
+            except Exception:
+                return gp.GP_WIDGET_TEXT
+
+
+    class _ConfigStub:
+        def __init__(self, parent):
+            self.parent = parent
+
+        def get_child_by_name(self, name: str):
+            # Return a widget-like stub with plausible defaults
+            name = name.lower()
+            if name in ('focusmode',):
+                return VirtualCamera._WidgetStub(name, 'Manual')
+            if name in ('batterylevel',):
+                return VirtualCamera._WidgetStub(name, '67%')
+            if name in ('autoexposuremodedial',):
+                return VirtualCamera._WidgetStub(name, 'Manual')
+            if name in ('expprogram',):
+                return VirtualCamera._WidgetStub(name, 'M')
+            if name in ('datetime', 'datetimeutc', 'd034'):
+                # return an ISO formatted string for convenience
+                return VirtualCamera._WidgetStub(name, time.strftime('%Y-%m-%d %H:%M:%S'))
+            # Generic fallback
+            return VirtualCamera._WidgetStub(name, '')
+
+    def get_config(self):
+        """Return a minimal config-like object for compatibility with callers
+        that expect `get_config().get_child_by_name(name).get_value()`.
+        """
+        return VirtualCamera._ConfigStub(self)
+
+    def set_config(self, config) -> None:
+        # no-op for virtual camera
+        return None
+
+    def get_storageinfo(self):
+        """Return a list-like object with storage info entries that have
+        `freekbytes` and `capacitykbytes` attributes. Values are large
+        defaults since virtual camera has plentiful space.
+        """
+        class _StorageEntry:
+            def __init__(self):
+                self.freekbytes = 34.9 * 1024 * 1024
+                self.capacitykbytes = 64.9 * 1024 * 1024
+
+        return [_StorageEntry()]
+
+    def exit(self):
+        # mirror gphoto Camera.exit()
+        self.disconnect()
+
+
+class GPhotoCameraAdapter(BaseCamera):
+    """Adapter that wraps a gphoto2 Camera object and exposes a
+    `vendor` attribute so higher-level code can branch on vendor-less
+    checks via the adapter.
+    """
+
+    def __init__(self, gp_camera, name: str):
+        super().__init__(name=name)
+        self._camera = gp_camera
+        self.vendor = 'Canon' if 'Canon' in name else ('Nikon' if 'Nikon' in name else None)
+        logging.debug('GPhotoCameraAdapter created for %s, vendor=%s', name, self.vendor)
+        # camera returned by get_camera() is already initialised
+        self._connected = True
+
+    def __getattr__(self, item):
+        # Delegate attribute access to the underlying gphoto Camera
+        return getattr(self._camera, item)
+
+    def connect(self) -> None:
+        # Already initialised in get_camera
+        self._connected = True
+
+    def disconnect(self) -> None:
+        try:
+            self._camera.exit()
+        except Exception:
+            pass
+        self._connected = False
+
+    def configure(self, **kwargs: Any) -> None:
+        # noop -- configuration typically done via gp widgets in other functions
+        return None
+
+    def capture(self, *args, **kwargs):
+        return self._camera.capture(*args, **kwargs)
+
+
+class CanonCamera(GPhotoCameraAdapter):
+    """Adapter specialized for Canon cameras. Future Canon-specific
+    helpers can be added here."""
+
+    def __init__(self, gp_camera, name: str):
+        super().__init__(gp_camera, name)
+        self.vendor = 'Canon'
+
+
+class NikonCamera(GPhotoCameraAdapter):
+    """Adapter specialized for Nikon cameras. Future Nikon-specific
+    helpers can be added here."""
+
+    def __init__(self, gp_camera, name: str):
+        super().__init__(gp_camera, name)
+        self.vendor = 'Nikon'
+
+
+
 def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
     """ Take a picture with the selected camera 
     
@@ -40,34 +238,63 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
 
     context, config = __adapt_camera_settings(camera, camera_settings)
 
-    # Take picture
-    camera.capture(gp.GP_CAPTURE_IMAGE, context)
+    # If __adapt_camera_settings returned None context, it's a virtual/non-gphoto
+    # camera: call its capture() method directly and return.
+    if context is None:
+        try:
+            camera.capture()
+            return
+        except Exception as e:
+            logging.exception('Virtual camera capture failed: %s', e)
+            raise
+
+    # Take picture for real gphoto cameras
+    try:
+        camera.capture(gp.GP_CAPTURE_IMAGE, context)
+    except Exception as e:
+        logging.exception('High-level capture failed, attempting low-level gp capture: %s', e)
+        # Fallback to lower-level gphoto call if possible
+        try:
+            target = camera._camera if hasattr(camera, '_camera') else camera
+            ctx = gp.gp_context_new()
+            file_path = gp.check_result(gp.gp_camera_capture(target, gp.GP_CAPTURE_IMAGE, ctx))
+            logging.info('Low-level capture returned file path: %s', file_path)
+        except Exception:
+            logging.exception('Low-level gp capture also failed')
+            raise
 
 
 def __adapt_camera_settings(camera, camera_settings):
+    # For virtual or non-gphoto cameras, skip gphoto configuration and
+    # return (None, None) so callers can handle capture directly.
+    if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+        return None, None
+
     context = gp.gp_context_new()
-    config = gp.check_result(gp.gp_camera_get_config(camera, context))
+    target = camera._camera if hasattr(camera, '_camera') else camera
+    config = gp.check_result(gp.gp_camera_get_config(target, context))
     # Set ISO
-    if "Nikon" in camera_settings.camera_name:
+    vendor = getattr(camera, 'vendor', None)
+    if vendor == 'Nikon':
         gp.gp_widget_set_value(gp.check_result(gp.gp_widget_get_child_by_name(config, 'autoiso')), str("Off"))
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        _set_gp_config(target, config, context)
 
     gp.gp_widget_set_value(gp.check_result(gp.gp_widget_get_child_by_name(config, 'iso')), str(camera_settings.iso))
     # set config
-    gp.gp_camera_set_config(camera, config, context)
+    gp.gp_camera_set_config(target, config, context)
     time.sleep(0.1)
 
     # Set aperture
     try:
-        if "Canon" in camera_settings.camera_name:
+        if getattr(camera, 'vendor', None) == 'Canon':
             gp.gp_widget_set_value(gp.check_result(gp.gp_widget_get_child_by_name(config, 'aperture')),
                                    str(camera_settings.aperture))
-        elif "Nikon" in camera_settings.camera_name:
+        elif getattr(camera, 'vendor', None) == 'Nikon':
             gp.gp_widget_set_value(gp.check_result(gp.gp_widget_get_child_by_name(config, 'f-number')),
                                    str(camera_settings.aperture))
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        _set_gp_config(target, config, context)
         time.sleep(0.1)
     except gphoto2.GPhoto2Error:
         pass
@@ -76,7 +303,7 @@ def __adapt_camera_settings(camera, camera_settings):
     gp.gp_widget_set_value(gp.check_result(gp.gp_widget_get_child_by_name(config, 'shutterspeed')),
                            str(camera_settings.shutter_speed))
     # set config
-    gp.gp_camera_set_config(camera, config, context)
+    _set_gp_config(camera, config, context)
     time.sleep(0.1)
 
     return context, config
@@ -93,33 +320,56 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
     """
     context, config = __adapt_camera_settings(camera, camera_settings)
 
-    # Take picture
-    if "Canon" in camera_settings.camera_name:
+    # If virtual camera, perform simple repeated captures
+    if context is None:
+        try:
+            # For burst, treat `duration` as number of frames when small,
+            # otherwise as seconds: take int(duration) shots.
+            n = max(1, int(round(duration)))
+            for _ in range(n):
+                camera.capture()
+            return
+        except Exception:
+            logging.exception('Virtual burst capture failed')
+            raise
+
+    # Take picture for real cameras
+    if getattr(camera, 'vendor', None) == 'Canon':
         # Push the button
         remote_release = gp.check_result(gp.gp_widget_get_child_by_name(config, 'eosremoterelease'))
         gp.gp_widget_set_value(remote_release, "Press Full")
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        gp.gp_camera_set_config(target, config, context)
         time.sleep(duration)
 
         # Release the button
         remote_release = gp.check_result(gp.gp_widget_get_child_by_name(config, 'eosremoterelease'))
         gp.gp_widget_set_value(remote_release, "Release Full")
         # set config
-        gp.gp_camera_set_config(camera, config, context)
-    elif "Nikon" in camera_settings.camera_name:
+        _set_gp_config(camera, config, context)
+    elif getattr(camera, 'vendor', None) == 'Nikon':
         # Push the button
         capture_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
         gp.gp_widget_set_value(capture_mode, "Burst")
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        _set_gp_config(camera, config, context)
 
         burst_number = gp.check_result(gp.gp_widget_get_child_by_name(config, 'burstnumber'))
         gp.gp_widget_set_value(burst_number, round(duration))
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        _set_gp_config(camera, config, context)
 
-        camera.capture(gp.GP_CAPTURE_IMAGE, context)
+        try:
+            camera.capture(gp.GP_CAPTURE_IMAGE, context)
+        except Exception:
+            logging.exception('Nikon high-level capture failed, trying low-level gp capture')
+            try:
+                target = camera._camera if hasattr(camera, '_camera') else camera
+                ctx = gp.gp_context_new()
+                gp.check_result(gp.gp_camera_capture(target, gp.GP_CAPTURE_IMAGE, ctx))
+            except Exception:
+                logging.exception('Nikon low-level capture failed')
+                raise
 
 
 def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) -> None:
@@ -132,24 +382,41 @@ def take_bracket(camera: Camera, camera_settings: CameraSettings, steps: str) ->
     """
     context, config = __adapt_camera_settings(camera, camera_settings)
 
-    if "Canon" in camera_settings.camera_name:
+    # Virtual camera: perform a few captures to simulate bracketing
+    if context is None:
+        try:
+            for _ in range(3):
+                camera.capture()
+            return
+        except Exception:
+            logging.exception('Virtual bracket capture failed')
+            raise
+
+    if getattr(camera, 'vendor', None) == 'Canon':
         # Set aeb
         aeb = gp.check_result(gp.gp_widget_get_child_by_name(config, 'aeb'))
         gp.gp_widget_set_value(aeb, steps)
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        _set_gp_config(camera, config, context)
 
-        camera.capture(gp.GP_CAPTURE_IMAGE, context)
-        camera.capture(gp.GP_CAPTURE_IMAGE, context)
-        camera.capture(gp.GP_CAPTURE_IMAGE, context)
-        camera.capture(gp.GP_CAPTURE_IMAGE, context)
-        camera.capture(gp.GP_CAPTURE_IMAGE, context)
+        for _ in range(5):
+            try:
+                camera.capture(gp.GP_CAPTURE_IMAGE, context)
+            except Exception:
+                logging.exception('Bracket capture high-level failed, trying low-level gp capture')
+                try:
+                    target = camera._camera if hasattr(camera, '_camera') else camera
+                    ctx = gp.gp_context_new()
+                    gp.check_result(gp.gp_camera_capture(target, gp.GP_CAPTURE_IMAGE, ctx))
+                except Exception:
+                    logging.exception('Bracket low-level capture failed')
+                    raise
 
         # Set aeb
         aeb = gp.check_result(gp.gp_widget_get_child_by_name(config, 'aeb'))
         gp.gp_widget_set_value(aeb, "off")
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        _set_gp_config(camera, config, context)
 
 
 def mirror_lock(camera: Camera, camera_settings: CameraSettings) -> None:
@@ -158,14 +425,19 @@ def mirror_lock(camera: Camera, camera_settings: CameraSettings) -> None:
     Args:
         - camera_name: Camera object
     """
-    context = gp.gp_context_new()
-    config = gp.check_result(gp.gp_camera_get_config(camera, context))
+    # For virtual cameras, nothing to do
+    if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+        return
 
-    if "Canon" in camera_settings.camera_name:
+    context = gp.gp_context_new()
+    target = camera._camera if hasattr(camera, '_camera') else camera
+    config = gp.check_result(gp.gp_camera_get_config(target, context))
+
+    if getattr(camera, 'vendor', None) == 'Canon':
         lock = gp.check_result(gp.gp_widget_get_child_by_name(config, 'mirrorlock'))
         gp.gp_widget_set_value(lock, "1")
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        gp.gp_camera_set_config(target, config, context)
 
         context, config = __adapt_camera_settings(camera, camera_settings)
 
@@ -185,7 +457,7 @@ def mirror_lock(camera: Camera, camera_settings: CameraSettings) -> None:
         lock = gp.check_result(gp.gp_widget_get_child_by_name(config, 'mirrorlock'))
         gp.gp_widget_set_value(lock, "0")
         # set config
-        gp.gp_camera_set_config(camera, config, context)
+        gp.gp_camera_set_config(target, config, context)
 
 
 def get_cameras() -> list:
@@ -198,7 +470,11 @@ def get_cameras() -> list:
 
     gp.check_result(gp.use_python_logging())
     # make a list of all available cameras
-    return list(gp.Camera.autodetect())
+    detected = list(gp.Camera.autodetect())
+    logging.debug('gphoto autodetect returned %d entries', len(detected))
+    for d in detected:
+        logging.debug('Detected camera: %s @ %s', d[0], d[1])
+    return detected
 
 
 def __get_address(camera_name: str) -> str:
@@ -210,10 +486,13 @@ def __get_address(camera_name: str) -> str:
     Returns: Address of the camera
     """
 
-    camera_tuple = [camera[1] for camera in get_cameras() if camera[0] == camera_name]
+    camera_list = get_cameras()
+    logging.debug('Searching for camera address for %s among %d cameras', camera_name, len(camera_list))
+    camera_tuple = [camera[1] for camera in camera_list if camera[0] == camera_name]
     try:
         return camera_tuple[0]
     except IndexError:
+        logging.debug('Camera %s not found in autodetect list', camera_name)
         raise CameraError(f"Camera {camera_name} not found")
 
 
@@ -229,6 +508,10 @@ def get_camera(camera_name: str):
     addr = __get_address(camera_name)
     if addr == '':
         return ''
+    logging.debug('get_camera(%s): address=%s', camera_name, addr)
+
+    # prepare variable in case initialization fails early
+    camera = None
 
     # get port info
     port_info_list = gp.PortInfoList()
@@ -262,10 +545,24 @@ def get_camera(camera_name: str):
         gp.gp_widget_set_value(drive_mode, "Continuous high speed")
         # set config
         gp.gp_camera_set_config(camera, config, context)
-    except gphoto2.GPhoto2Error:
-        pass
+    except gphoto2.GPhoto2Error as e:
+        logging.exception('gphoto2 error while initializing camera %s: %s', camera_name, e)
+        # continue and attempt to wrap camera object anyway
 
-    return camera
+    # Wrap the gphoto camera in a vendor-aware adapter
+    if camera is None:
+        logging.error('get_camera: camera object was not created for %s', camera_name)
+        raise CameraError(f'Could not create camera object for {camera_name}')
+
+    if "Canon" in camera_name:
+        logging.debug('Wrapping camera %s as CanonCamera', camera_name)
+        return CanonCamera(camera, camera_name)
+    elif "Nikon" in camera_name:
+        logging.debug('Wrapping camera %s as NikonCamera', camera_name)
+        return NikonCamera(camera, camera_name)
+    else:
+        logging.debug('Wrapping camera %s as generic GPhotoCameraAdapter', camera_name)
+        return GPhotoCameraAdapter(camera, camera_name)
 
 
 def get_free_space(camera: Camera) -> float:
@@ -276,7 +573,40 @@ def get_free_space(camera: Camera) -> float:
 
     Returns: Free space on the card of the camera [GB]
     """
-    return round(camera.get_storageinfo()[0].freekbytes / 1024 / 1024, 1)
+    try:
+        return round(camera.get_storageinfo()[0].freekbytes / 1024 / 1024, 1)
+    except gphoto2.GPhoto2Error as e:
+        # Try to reinitialise the camera once and retry
+        try:
+            if hasattr(camera, 'name'):
+                logging.info('Reinitialising camera %s to retry storage query', camera.name)
+                new_cam = get_camera(camera.name)
+                try:
+                    return round(new_cam.get_storageinfo()[0].freekbytes / 1024 / 1024, 1)
+                except gphoto2.GPhoto2Error:
+                    # Try lower level gp call with explicit context
+                    try:
+                        ctx = gp.gp_context_new()
+                        stor = gp.check_result(gp.gp_camera_get_storageinfo(new_cam._camera if hasattr(new_cam, '_camera') else new_cam, ctx))
+                        return round(stor[0].freekbytes / 1024 / 1024, 1)
+                    except Exception:
+                        raise
+        except Exception:
+            logging.exception('Reinitialisation attempt failed for %s', getattr(camera, 'name', str(camera)))
+        # If recovery failed, propagate the original error so caller can handle it
+        # If operation is unsupported, try a lower-level gp call on the original camera before giving up
+        try:
+            ctx = gp.gp_context_new()
+            stor = gp.check_result(gp.gp_camera_get_storageinfo(camera._camera if hasattr(camera, '_camera') else camera, ctx))
+            return round(stor[0].freekbytes / 1024 / 1024, 1)
+        except Exception:
+            # Raise a clearer CameraError including original gphoto message
+            raise CameraError(f"Could not read storage info for {getattr(camera, 'name', camera)}: {e}") from e
+    except Exception:
+        # For virtual or non-gphoto cameras return a large default value
+        if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+            return 999.9
+        raise
 
 
 def get_space(camera: Camera) -> float:
@@ -288,7 +618,38 @@ def get_space(camera: Camera) -> float:
     Returns: Size of memory card of the camera [GB]
     """
 
-    return round(camera.get_storageinfo()[0].capacitykbytes / 1024 / 1024, 1)
+    try:
+        return round(camera.get_storageinfo()[0].capacitykbytes / 1024 / 1024, 1)
+    except gphoto2.GPhoto2Error as e:
+        logging.warning('gphoto2 error reading capacity for %s: %s', getattr(camera, 'name', str(camera)), e)
+        # Try to reinitialise the camera once and retry
+        try:
+            if hasattr(camera, 'name'):
+                logging.info('Reinitialising camera %s to retry capacity query', camera.name)
+                new_cam = get_camera(camera.name)
+                try:
+                    return round(new_cam.get_storageinfo()[0].capacitykbytes / 1024 / 1024, 1)
+                except gphoto2.GPhoto2Error:
+                    try:
+                        ctx = gp.gp_context_new()
+                        stor = gp.check_result(gp.gp_camera_get_storageinfo(new_cam._camera if hasattr(new_cam, '_camera') else new_cam, ctx))
+                        return round(stor[0].capacitykbytes / 1024 / 1024, 1)
+                    except Exception:
+                        raise
+        except Exception:
+            logging.exception('Reinitialisation attempt failed for %s', getattr(camera, 'name', str(camera)))
+        # If recovery failed, propagate the original error so caller can handle it
+        try:
+            ctx = gp.gp_context_new()
+            stor = gp.check_result(gp.gp_camera_get_storageinfo(camera._camera if hasattr(camera, '_camera') else camera, ctx))
+            return round(stor[0].capacitykbytes / 1024 / 1024, 1)
+        except Exception:
+            raise CameraError(f"Could not read storage capacity for {getattr(camera, 'name', camera)}: {e}") from e
+    except Exception:
+        # For virtual or non-gphoto cameras return a large default value
+        if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+            return 999.9
+        raise
 
 
 def get_shooting_mode(camera_name: str, camera: Camera) -> str:
@@ -299,16 +660,30 @@ def get_shooting_mode(camera_name: str, camera: Camera) -> str:
 
     Returns: Shooting mode of the camera
     """
-    if "Canon" in camera_name:
-        return camera.get_config().get_child_by_name('autoexposuremodedial').get_value()
-    elif "Nikon" in camera_name:
-        mode = camera.get_config().get_child_by_name('expprogram').get_value()
-        if mode == "M":
-            return "Manual"
+    # For virtual/non-gphoto cameras assume Manual shooting mode
+    if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+        return "Manual"
+
+    vendor = getattr(camera, 'vendor', None)
+    try:
+        if vendor == 'Canon':
+            return camera.get_config().get_child_by_name('autoexposuremodedial').get_value()
+        elif vendor == 'Nikon':
+            mode = camera.get_config().get_child_by_name('expprogram').get_value()
+            if mode == "M":
+                return "Manual"
+            else:
+                return mode
         else:
-            return mode
-    else:
-        return ""
+            return ""
+    except gphoto2.GPhoto2Error as e:
+        logging.warning('gphoto2 error reading shooting mode for %s: %s', getattr(camera, 'name', str(camera)), e)
+        return "Manual"
+    except Exception:
+        # For virtual/non-gphoto cameras assume Manual shooting mode
+        if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+            return "Manual"
+        raise
 
 
 def get_focus_mode(camera: Camera) -> str:
@@ -320,7 +695,16 @@ def get_focus_mode(camera: Camera) -> str:
     Returns: Focus mode of the camera
     """
 
-    return camera.get_config().get_child_by_name('focusmode').get_value()
+    try:
+        return camera.get_config().get_child_by_name('focusmode').get_value()
+    except gphoto2.GPhoto2Error as e:
+        logging.warning('gphoto2 error reading focus mode for %s: %s', getattr(camera, 'name', str(camera)), e)
+        return "Manual"
+    except Exception:
+        # For virtual/non-gphoto cameras assume Manual focus
+        if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+            return "Manual"
+        raise
 
 
 def get_battery_level(camera: Camera) -> str:
@@ -332,7 +716,17 @@ def get_battery_level(camera: Camera) -> str:
     Returns: Current battery level of the camera [%]
     """
 
-    return camera.get_config().get_child_by_name('batterylevel').get_value()
+    try:
+        return camera.get_config().get_child_by_name('batterylevel').get_value()
+    except gphoto2.GPhoto2Error as e:
+        logging.warning('gphoto2 error reading battery level for %s: %s', getattr(camera, 'name', str(camera)), e)
+        # Return unknown battery level to avoid crashing the UI
+        return "Unknown"
+    except Exception:
+        # VirtualCamera and other non-gphoto cameras don't expose battery info
+        if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+            return "100%"
+        raise
 
 
 def get_time(camera: Camera) -> str:
@@ -344,8 +738,28 @@ def get_time(camera: Camera) -> str:
     Returns: Current time of the camera
     """
 
+    # For virtual/non-gphoto cameras return host time quickly
+    if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+        return datetime.now().isoformat(' ')
+
     # get configuration tree
-    config = camera.get_config()
+    try:
+        config = camera.get_config()
+    except gphoto2.GPhoto2Error as e:
+        logging.warning('gphoto2 error reading camera time for %s: %s', getattr(camera, 'name', str(camera)), e)
+        # Attempt reinitialisation and retry once
+        try:
+            if hasattr(camera, 'name'):
+                logging.info('Reinitialising camera %s to retry time query', camera.name)
+                new_cam = get_camera(camera.name)
+                config = new_cam.get_config()
+        except Exception:
+            logging.exception('Reinitialisation attempt failed for %s', getattr(camera, 'name', str(camera)))
+            # If retry failed, propagate the original error so the caller can handle it
+            raise
+    except Exception:
+        # If any other error, fall back to host time
+        return datetime.now().isoformat(' ')
     # find the date/time setting config item and get it
     # name varies with camera driver
     #   Canon EOS - 'datetime'
@@ -385,41 +799,108 @@ def get_time(camera: Camera) -> str:
 
 def set_time(camera: Camera) -> None:
     """ Set the computer time on the selected camera """
-
-    # get configuration tree
-    config = camera.get_config()
+    # For physical gphoto cameras we set the camera clock; for virtual or
+    # non-gphoto cameras this is a no-op.
+    try:
+        config = camera.get_config()
+    except gphoto2.GPhoto2Error as e:
+        logging.warning('gphoto2 error getting config for %s: %s', getattr(camera, 'name', str(camera)), e)
+        # Attempt reinitialisation and retry once
+        try:
+            if hasattr(camera, 'name'):
+                logging.info('Reinitialising camera %s to retry set_time', camera.name)
+                camera = get_camera(camera.name)
+                config = camera.get_config()
+        except Exception:
+            logging.exception('Reinitialisation attempt failed for %s', getattr(camera, 'name', str(camera)))
+            # propagate error to caller
+            raise
+    except Exception:
+        # VirtualCamera or other adapters may not expose get_config(); skip
+        return
 
     if __set_datetime(config):
         # apply the changed config
-        camera.set_config(config)
+        try:
+            camera.set_config(config)
+        except Exception:
+            logging.error('Could not apply date & time to camera')
     else:
         logging.error('Could not set date & time')
 
 
 def __set_datetime(config) -> bool:
     """ Private method to set the date and time of the camera. """
+    # Try gphoto widget API first
+    try:
+        ok, date_config = gp.gp_widget_get_child_by_name(config, 'datetimeutc')
+        if ok == -2:
+            ok, date_config = gp.gp_widget_get_child_by_name(config, 'datetime')
 
-    ok, date_config = gp.gp_widget_get_child_by_name(config, 'datetimeutc')
-    if ok == -2:
-        ok, date_config = gp.gp_widget_get_child_by_name(config, 'datetime')
+        if ok >= gp.GP_OK:
+            widget_type = date_config.get_type()
+            if widget_type == gp.GP_WIDGET_DATE:
+                now = int(time.time())
+                date_config.set_value(now)
+            else:
+                now = time.strftime('%Y-%m-%d %H:%M:%S')
+                date_config.set_value(now)
+            return True
+    except Exception:
+        # fall back to stub config API
+        pass
 
-    if ok >= gp.GP_OK:
-        widget_type = date_config.get_type()
-        if widget_type == gp.GP_WIDGET_DATE:
-            now = int(time.time())
-            date_config.set_value(now)
-        else:
-            now = time.strftime('%Y-%m-%d %H:%M:%S')
-            date_config.set_value(now)
-        return True
+    # Fallback for VirtualCamera._ConfigStub or other non-gphoto configs
+    try:
+        if hasattr(config, 'get_child_by_name'):
+            for name in ('datetimeutc', 'datetime', 'd034'):
+                try:
+                    widget = config.get_child_by_name(name)
+                except Exception:
+                    widget = None
+                if not widget:
+                    continue
+                try:
+                    widget_type = widget.get_type()
+                except Exception:
+                    widget_type = None
+
+                if widget_type == gp.GP_WIDGET_DATE:
+                    now = int(time.time())
+                    if hasattr(widget, 'set_value'):
+                        widget.set_value(now)
+                    else:
+                        setattr(widget, '_value', now)
+                else:
+                    now = time.strftime('%Y-%m-%d %H:%M:%S')
+                    if hasattr(widget, 'set_value'):
+                        widget.set_value(now)
+                    else:
+                        setattr(widget, '_value', now)
+                return True
+    except Exception:
+        pass
+
     return False
 
 
-def get_camera_dict() -> dict:
+def get_camera_dict(is_simulator: bool = False) -> dict:
     """ Get a dictionary of camera names and their GPhoto2 camera object
     Returns: Dictionary of camera names and their GPhoto2 camera object
     """
+    if is_simulator:
+        # Return a single VirtualCamera for simulator mode
+        vc = VirtualCamera()
+        vc.connect()
+        return {vc.name: vc}
+
     camera_names = get_cameras()
+    # Print detected cameras to terminal for user visibility
+    try:
+        print("Found cameras:", camera_names, flush=True)
+    except Exception:
+        logging.debug('Could not print found cameras to terminal')
+
     cameras = dict()
     for camera_name in camera_names:
         cameras[camera_name[0]] = get_camera(camera_name[0])

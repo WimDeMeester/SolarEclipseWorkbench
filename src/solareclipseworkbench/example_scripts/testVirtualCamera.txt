@@ -1,0 +1,22 @@
+take_picture, C1, -, 0:01:58.0, VirtualCamera, 1/1250, 8, 200, "Pre-C1 uneclipsed (Iter. 1)"
+take_picture, C1, -, 0:01:56.0, VirtualCamera, 1/1250, 8, 200, "Pre-C1 uneclipsed (Iter. 2)"
+sync_cameras, C1, -, 0:01:50.0, "Sync Cameras"
+take_picture, C1, -, 0:01:45.0, VirtualCamera, 1/1250, 8, 200, "Pre-C1 uneclipsed (Iter. 3)"
+take_picture, C4, +, 0:01:00.0, VirtualCamera, 1/1250, 8, 200, "Post-C4 uneclipsed (Iter. 1)"
+take_picture, C4, +, 0:01:02.0, VirtualCamera, 1/1250, 8, 200, "Post-C4 uneclipsed (Iter. 2)"
+take_picture, C1, -, 0:00:02.0, VirtualCamera, 1/1250, 8, 200, "First contact (Iter. 1)"
+take_picture, C1, +, 0:00:00.0, VirtualCamera, 1/1250, 8, 200, "First contact (Iter. 2)"
+take_picture, C1, +, 0:00:02.0, VirtualCamera, 1/1250, 8, 200, "First contact (Iter. 3)"
+take_picture, C4, -, 0:00:06.0, VirtualCamera, 1/1250, 8, 200, "Fourth contact (Iter. 1)"
+take_picture, C4, -, 0:00:04.0, VirtualCamera, 1/1250, 8, 200, "Fourth contact (Iter. 2)"
+take_picture, C4, -, 0:00:02.0, VirtualCamera, 1/1250, 8, 200, "Fourth contact (Iter. 3)"
+take_picture, C4, -, 0:00:00.0, VirtualCamera, 1/1250, 8, 200, "Fourth contact (Iter. 4)"
+
+# Example partial series around C2
+take_picture, C2, -, 1:16:50.0, VirtualCamera, 1/1250, 8, 200, "Partial C1-C2 (Iter. 1)"
+take_picture, C2, -, 1:16:30.0, VirtualCamera, 1/1250, 8, 200, "Partial C1-C2 (Iter. 2)"
+take_picture, C2, -, 1:16:10.0, VirtualCamera, 1/1250, 8, 200, "Partial C1-C2 (Iter. 3)"
+take_picture, C2, -, 1:15:50.0, VirtualCamera, 1/1250, 8, 200, "Partial C1-C2 (Iter. 4)"
+take_picture, C2, -, 1:15:30.0, VirtualCamera, 1/1250, 8, 200, "Partial C1-C2 (Iter. 5)"
+
+# End of simulated-camera example script
