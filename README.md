@@ -48,6 +48,7 @@
 
 ```bash
 python -m venv solareclipseworkbench
+source solareclipseworkbench/bin/activate
 ```
 
 - For modern Apple Mac computers (using Apple Silicon processors), install [homebrew](https://brew.sh/). Add your homebrew/bin directory to your PATH. Then install gphoto2 using homebrew:
@@ -68,19 +69,27 @@ pip install solareclipseworkbench
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev python3.12-venv
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
 
 ```bash
-sudo apt-get install gphoto2/noble libgphoto2 python3-gphoto2
+sudo apt-get install gphoto2 libgphoto2-dev python3-gphoto2
+```
+
+- Make sure that gvfs is not started automatically
+
+```bash
+sudo chmod -x /usr/lib/gvfs/gvfs-gphoto2-volume-monitor
+sudo chmod -x /usr/lib/gvfs/gvfsd-gphoto2
 ```
 
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
-python -m venv solareclipseworkbench
+python3 -m venv solareclipseworkbench
+source solareclipseworkbench/bin/activate
 ```
 
 - Install the Solar Eclipse Workbench:
@@ -104,7 +113,7 @@ wsl --install
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev python3.12-venv
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
@@ -198,13 +207,15 @@ python solareclipseworkbench
 The following command line parameters can be used to start up gui.py.
 
 
-| Short parameter | Long parameter        | Description                                                                |
-|-----------------|-----------------------|----------------------------------------------------------------------------|
-| -h              | --help                | Show the help message and exit                                             |
-| -d DATE         | --date DATE           | Date of the solar eclipse (in YYYY-MM-DD format)                           |
-| -lon LONGITUDE  | --longitude LONGITUDE | Longitude of the location where to watch the solar eclipse (W is negative) |
-| -lat LATITUDE   | --latitude LATITUDE   | Latitude of the location where to watch the solar eclipse (N is positive)  |
-| -alt ALTITUDE   | --altitude ALTITUDE   | Altitude of the location where to watch the solar eclipse (in meters)      |
+| Short parameter  | Long parameter        | Description                                                                |
+|------------------|-----------------------|----------------------------------------------------------------------------|
+| -h               | --help                | Show the help message and exit                                             |
+| -d DATE          | --date DATE           | Date of the solar eclipse (in YYYY-MM-DD format)                           |
+| -lon LONGITUDE   | --longitude LONGITUDE | Longitude of the location where to watch the solar eclipse (W is negative) |
+| -lat LATITUDE    | --latitude LATITUDE   | Latitude of the location where to watch the solar eclipse (N is positive)  |
+| -alt ALTITUDE    | --altitude ALTITUDE   | Altitude of the location where to watch the solar eclipse (in meters)      |
+| -s               | --sim                 | Start the application in simulation mode                                   |
+| --virtual-camera | --virtual-camera      | Use a virtual camera.  Only for simulation mode!                           |
 
 ### UI functionality
 
@@ -515,6 +526,12 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcomm
 ```bash
 sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
 pip install pygobject
+```
+
+## Run Solar Eclipse Workbench from the development environment
+
+```bash
+~/.local/bin/poetry run python src/solareclipseworkbench/gui.py 
 ```
 
 ## Create and upload a new pip package

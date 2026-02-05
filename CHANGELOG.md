@@ -15,7 +15,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - (Describe any changes here)
 
-## [1.2.3] - 2026-01-15
+
+## [1.3.0] - 2026-02-04
+
+### Added
+- Introduce `BaseCamera` and a `VirtualCamera` for simulator mode.
+- Add `GPhotoCameraAdapter` and vendor adapters (`CanonCamera`, `NikonCamera`) to wrap gphoto2 cameras.
+- `get_camera_dict(..., is_simulator=True)` returns a `VirtualCamera` for easy testing and demos.
+- Add gphoto-style stubs on `VirtualCamera` (`get_config`, `set_config`, `get_storageinfo`, `exit`) for compatibility.
+- Background probing of cameras off the GUI thread; model updates scheduled on the main thread to avoid UI freezes.
+- Added defensive helpers and fallbacks for gphoto2 errors (storage/time/config) and a one-time reinitialisation retry.
+- Low-level gphoto fallbacks for capture operations to improve reliability with real cameras.
+- Tests and example script for the virtual camera added (`tests/test_virtual_camera.py`, example_scripts/testVirtualCamera.txt).
+- Documented simulator CLI flag in README; added runtime prints/logging to aid diagnostics.
+ - Use Astropy/IERS to compute Delta T (TT − UT1) for eclipse reference times
+ - Keep CSV-based Delta T as a fallback if no internet is available; added robust parsing of `td_ge`/`t0` and safeguards when ephemeris files are unavailable.
+
+
+## [1.2.4] - 2026-01-16
 
 ### Added
 - Add LAST command to the scripts

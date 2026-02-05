@@ -17,7 +17,7 @@ from typing import Union
 import geopandas
 import pandas as pd
 import pytz
-from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings
+from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QDoubleValidator, QIntValidator, QCloseEvent
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
     QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QTableView
@@ -30,6 +30,8 @@ from gphoto2 import GPhoto2Error, Camera
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from timezonefinder import TimezoneFinder
+
+import threading
 
 from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get_free_space, get_space, \
     get_shooting_mode, get_focus_mode, set_time, CameraSettings
@@ -191,8 +193,11 @@ class SolarEclipseModel:
     def sync_camera_time(self):
         """ Set the time of all connected cameras to the time of the computer."""
 
-        for camera_name, camera in self.camera_overview.camera_overview_dict.items():
+        if not self.camera_overview or not getattr(self.camera_overview, 'camera_overview_dict', None):
+            logging.debug('sync_camera_time: no camera overview available yet; skipping')
+            return
 
+        for camera_name, camera in self.camera_overview.camera_overview_dict.items():
             logging.info(f"Syncing time for camera {camera_name}")
             set_time(camera)
 
@@ -202,6 +207,10 @@ class SolarEclipseModel:
         For the camera(s) for which the focus mode and/or shooting mode is not set to 'Manual', a warning message is
         logged.
         """
+
+        if not self.camera_overview or not getattr(self.camera_overview, 'camera_overview_dict', None):
+            logging.debug('check_camera_state: no camera overview available yet; skipping')
+            return
 
         for camera_name, camera in self.camera_overview.camera_overview_dict.items():
 
@@ -977,9 +986,27 @@ class SolarEclipseController(Observer):
                 self.view.show_reference_moments(reference_moments, magnitude, eclipse_type)
 
         elif text == "Camera(s)":
-            self.model.camera_overview.update_camera_overview()
-            self.sync_camera_time()
-            self.check_camera_state()
+            logging.debug('User requested Camera(s) update')
+            try:
+                logging.debug('Calling model.camera_overview.update_camera_overview()')
+                self.model.camera_overview.update_camera_overview()
+                logging.debug('Returned from update_camera_overview()')
+            except Exception:
+                logging.exception('Exception while updating camera overview')
+
+            try:
+                logging.debug('Calling sync_camera_time()')
+                self.sync_camera_time()
+                logging.debug('Returned from sync_camera_time()')
+            except Exception:
+                logging.exception('Exception while syncing camera time')
+
+            try:
+                logging.debug('Calling check_camera_state()')
+                self.check_camera_state()
+                logging.debug('Returned from check_camera_state()')
+            except Exception:
+                logging.exception('Exception while checking camera state')
 
         elif text == "Simulator":
             self.simulator_popup = SimulatorPopup(self)
@@ -1549,6 +1576,13 @@ class CameraOverviewTableModel(QAbstractTableModel):
                                            CameraOverviewTableColumnNames.BATTERY_LEVEL.value,
                                            CameraOverviewTableColumnNames.FREE_MEMORY_GB.value,
                                            CameraOverviewTableColumnNames.FREE_MEMORY_PERCENTAGE.value])
+        # signal for async worker
+        try:
+            self.data_ready = pyqtSignal(object)
+            self.data_ready.connect(self._on_data_ready)
+        except Exception:
+            # fallback for environments without Qt signal support during tests
+            self.data_ready = None
 
     def rowCount(self, index):
         return self._data.shape[0]
@@ -1581,31 +1615,117 @@ class CameraOverviewTableModel(QAbstractTableModel):
 
     def update_camera_overview(self):
         """ Update the camera overview. """
+        logging.debug('CameraOverviewTableModel.update_camera_overview(): start (scheduling worker)')
+        try:
+            print('CameraOverview: scheduling worker to probe cameras', flush=True)
+        except Exception:
+            pass
 
+        # clear current data quickly on UI thread
         self._data = pd.DataFrame(columns=self._data.columns)
+        self.beginResetModel()
+        self.endResetModel()
+
+        # start background worker to probe cameras
+        # prepare a slot for pending data written by the worker
+        self._pending_data = None
+
+        worker = threading.Thread(target=self._gather_camera_info, daemon=True)
+        worker.start()
+
+        # start a short polling timer on the main thread to apply data when available
+        QTimer.singleShot(200, self._try_apply_pending)
+
+    def _gather_camera_info(self):
+        try:
+            is_sim = getattr(self.view, 'is_simulator', False) and getattr(self.view, 'virtual_camera_enabled', False)
+            vc_fps = getattr(self.view, 'virtual_camera_fps', 1)
+            camera_dict = get_camera_dict(is_simulator=is_sim)
+
+            data = []
+            for camera_name, camera in camera_dict.items():
+                try:
+                    logging.debug('Worker: processing camera %s', camera_name)
+                    battery_level = get_battery_level(camera).rstrip('%')
+                    free_space_gb = get_free_space(camera)
+                    total_space = get_space(camera)
+                    free_space_percentage = int(free_space_gb / total_space * 100)
+                    data.append([camera_name, str(battery_level), str(free_space_gb), str(free_space_percentage)])
+                except Exception:
+                    logging.exception('Worker: exception while processing camera %s', camera_name)
+                    continue
+            # schedule UI update on main thread
+            try:
+                print('Worker: gathered camera overview data:', data, flush=True)
+            except Exception:
+                pass
+            # write pending data and the camera objects for the main thread poll to pick up
+            try:
+                self._pending_data = data
+                # keep the mapping of camera name -> camera object for later actions
+                self._pending_camera_map = camera_dict
+            except Exception:
+                logging.exception('Worker: could not set pending data')
+        except Exception:
+            logging.exception('Worker: failed to gather camera info')
+
+    def _on_data_ready(self, data):
+        try:
+            print('CameraOverview: on_data_ready called with', data, flush=True)
+        except Exception:
+            pass
+        # Update internal dict for other parts of the app (store camera objects if available)
+        try:
+            # prefer the actual camera objects if the worker provided them
+            pending_map = getattr(self, '_pending_camera_map', None)
+            if pending_map:
+                self.camera_overview_dict = pending_map
+            else:
+                # fallback: create a name->None map
+                dmap = {}
+                for row in data:
+                    name = row[0]
+                    dmap[name] = None
+                self.camera_overview_dict = dmap
+            # clear pending map
+            try:
+                self._pending_camera_map = None
+            except Exception:
+                pass
+        except Exception:
+            self.camera_overview_dict = None
 
         self.beginResetModel()
-
-        if self.camera_overview_dict is None:
-            self.camera_overview_dict = get_camera_dict()
-
-        data = []
-
-        for camera_name, camera in self.camera_overview_dict.items():
-            try:
-                battery_level = get_battery_level(camera).rstrip("%")
-                free_space_gb = get_free_space(camera)
-                total_space = get_space(camera)
-                free_space_percentage = int(free_space_gb / total_space * 100)
-
-                data.append([camera_name, str(battery_level), str(free_space_gb), str(free_space_percentage)])
-
-            except (GPhoto2Error, IndexError):
-                pass
-
         self._data = pd.DataFrame(data, columns=self._data.columns)
-
         self.endResetModel()
+
+        # Ensure the view updates and columns are sized to the new data
+        try:
+            if hasattr(self, 'view') and getattr(self.view, 'camera_overview', None):
+                self.view.camera_overview.setModel(self)
+                self.view.camera_overview.resizeColumnsToContents()
+                try:
+                    self.view.camera_overview.selectRow(0)
+                except Exception:
+                    pass
+                self.view.camera_overview.repaint()
+                print('CameraOverview: view updated', flush=True)
+        except Exception:
+            logging.exception('Could not update camera overview view after data ready')
+
+    def _try_apply_pending(self):
+        """Poll for pending data written by the background worker and apply it on the GUI thread."""
+        try:
+            data = getattr(self, '_pending_data', None)
+            if data:
+                # clear pending before applying to avoid races
+                self._pending_data = None
+                self._on_data_ready(data)
+            else:
+                # not ready yet — try again shortly
+                QTimer.singleShot(200, self._try_apply_pending)
+        except Exception:
+            logging.exception('Error while polling for pending camera overview data')
 
 
 class JobsTableColumnNames(Enum):
@@ -1802,6 +1922,11 @@ class QJobsTableView(QTableView):
 def main():
     time_string = time.strftime("%Y%m%d-%H%M%S")
     logging.basicConfig(filename=f'{time_string}.log', level=logging.DEBUG, format='%(asctime)s %(message)s')
+    # Also log to stdout so users see debug output in terminal
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.DEBUG)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    logging.getLogger().addHandler(console_handler)
     LOGGER.info("Starting up Solar Eclipse Workbench")
 
     parser = argparse.ArgumentParser(description="Solar Eclipse Workbench")
@@ -1811,6 +1936,12 @@ def main():
         help="Start up in simulator mode",
         default=False,
         action='store_true'
+    )
+    parser.add_argument(
+        "--virtual-camera",
+        help="Enable virtual camera (when starting GUI in simulator mode)",
+        action='store_true',
+        default=False,
     )
     parser.add_argument(
         "-lon",
@@ -1852,7 +1983,13 @@ def main():
 
     model = SolarEclipseModel()
     view = SolarEclipseView(is_simulator=args.sim)
+    # Attach virtual camera defaults to the view so other parts can query them
+    view.virtual_camera_enabled = args.virtual_camera
+
     controller = SolarEclipseController(model, view, is_simulator=args.sim)
+
+    # Make the view available to the camera overview model so it can read simulator flags
+    model.camera_overview.view = view
 
     if args.longitude and args.latitude and args.altitude:
         controller.set_location(args.longitude, args.latitude, args.altitude)

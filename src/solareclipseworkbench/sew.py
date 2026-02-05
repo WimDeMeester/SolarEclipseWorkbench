@@ -21,7 +21,9 @@ def main(args):
 
             filename = args.script
 
-            cameras = camera.get_camera_dict()
+            cameras = camera.get_camera_dict(
+                is_simulator=args.virtual_camera,
+            )
 
             # Only do a simulation if args.c1 is set
             if args.ref_moment:
@@ -80,6 +82,13 @@ if __name__ == "__main__":
         "-s",
         "--script",
         help="script to execute (with voice prompts and camera commands)",
+        default=False,
+    )
+
+    parser.add_argument(
+        "--virtual-camera",
+        help="Use virtual camera instead of physical cameras",
+        action='store_true',
         default=False,
     )
 

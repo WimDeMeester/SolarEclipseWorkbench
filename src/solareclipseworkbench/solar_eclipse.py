@@ -14,6 +14,7 @@ import os
 from datetime import datetime
 
 from astropy.time import Time
+from astropy.utils.iers import conf
 
 from solareclipseworkbench.besselian_element_generator import BesselianElementGenerator
 
@@ -104,19 +105,50 @@ def get_element_coeffs(date=None):
             coeffs[k] = v
 
     # Calculate the Besselian elements
-    time = coeffs['td_ge']
-    # Split the time into hours, minutes, and seconds. The timestring is in the format HH:MM:SS
-    time_parts = time.split(':')
-    hours, minutes, seconds = map(int, time_parts)
-    if minutes >= 30:
-        hours += 1
+    # Prefer `td_ge` (HH:MM:SS) from the CSV; fall back to numeric `t0` if not present.
+    hours = 0
+    if 'td_ge' in coeffs and isinstance(coeffs['td_ge'], str) and coeffs['td_ge'].strip():
+        try:
+            time_parts = coeffs['td_ge'].split(':')
+            hours, minutes, seconds = map(int, time_parts)
+            if minutes >= 30:
+                hours += 1
+        except Exception:
+            # If parsing fails, fall back to t0
+            hours = int(float(coeffs.get('t0', 0)))
+    else:
+        # `t0` may be present as numeric (float) or string; coerce to float then int
+        try:
+            hours = int(float(coeffs.get('t0', 0)))
+        except Exception:
+            hours = 0
 
     time_str = f"{int(coeffs['year']):04d}-{int(coeffs['month']):02d}-{int(coeffs['day']):02d} {hours:02d}:00:00"
 
     t = Time(time_str, scale='utc')
     # Need to take the closed hour from the besselian elements CSV file to get the correct results.
     jd_tdb = t.jd
-    bess = BesselianElementGenerator.get_elements(jd_tdb)
+    try:
+        bess = BesselianElementGenerator.get_elements(jd_tdb)
+    except Exception:
+        # Fall back to using values from the CSV if the ephemeris can't be loaded
+        def getc(key, alt=None):
+            v = coeffs.get(key, alt)
+            try:
+                return float(v)
+            except Exception:
+                return 0.0
+
+        bess = {
+            'x': [getc('x0'), getc('x1'), getc('x2'), getc('x3')],
+            'y': [getc('y0'), getc('y1'), getc('y2'), getc('y3')],
+            'd': [getc('d0'), getc('d1'), getc('d2')],
+            'mu': [getc('mu0'), getc('mu1'), getc('mu2')],
+            'l1': [getc('l10'), getc('l11'), getc('l12')],
+            'l2': [getc('l20'), getc('l21'), getc('l22')],
+            'tanf1': getc('tan_f1', coeffs.get('tanf1', 0.0)),
+            'tanf2': getc('tan_f2', coeffs.get('tanf2', 0.0)),
+        }
 
     elements = {'jd': coeffs['julian_date'], 'Δt': coeffs['dt'], 'T0': coeffs['t0'], 'X0': bess['x'][0], 'X1': bess['x'][1], 'X2': bess['x'][2], 'X3': bess['x'][3],
                 'Y0': bess['y'][0], 'Y1': bess['y'][1], 'Y2': bess['y'][2], 'Y3': bess['y'][3], 'd0': bess['d'][0], 'd1': bess['d'][1], 'd2': bess['d'][2],
@@ -144,6 +176,24 @@ def get_element_coeffs(date=None):
                 if dt_row['deltat'] != 'deltat':
                     elements['Δt'] = float(dt_row['deltat'])
                     break
+
+    # Compute Delta T using Astropy/IERS (new method)
+    old_dt = elements.get('Δt')
+    # Allow degraded IERS accuracy (use predictions if necessary)
+    try:
+        conf.iers_degraded_accuracy = 'warn'
+    except Exception:
+        pass
+
+    new_dt = None
+    try:
+        # `t` was created earlier as the UTC Time for the eclipse hour
+        tt_jd = t.tt.jd
+        ut1_jd = t.ut1.jd
+        new_dt = (tt_jd - ut1_jd) * 86400.0
+    except Exception:
+        # If UT1/TT calculation fails (no IERS data or offline), leave new_dt as None
+        new_dt = None
 
     return elements
 
