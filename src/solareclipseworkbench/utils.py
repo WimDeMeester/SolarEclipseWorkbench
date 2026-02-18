@@ -1,4 +1,5 @@
 import logging
+import csv
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -126,9 +127,15 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
         - simulated_start: datetime with the time to simulate relative to the reference moment.
                             None if no simulation is to be used.
     """
-    cmd_str_split = cmd_str.split(",")
-    func_name = cmd_str_split[0].lstrip()
-    ref_moment = cmd_str_split[1].lstrip()
+    # Use CSV reader to properly handle quoted fields with commas
+    try:
+        cmd_str_split = next(csv.reader([cmd_str], skipinitialspace=True))
+    except StopIteration:
+        logging.error(f"Could not parse command: {cmd_str}")
+        return
+    
+    func_name = cmd_str_split[0].strip()
+    ref_moment = cmd_str_split[1].strip()
 
     if ref_moment.upper() == "SUNRISE":
         ref_moment = "sunrise"
@@ -136,11 +143,11 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
     if ref_moment.upper() == "SUNSET":
         ref_moment = "sunset"
 
-    sign = cmd_str_split[2].lstrip()    # + or -
-    hours, minutes, seconds = cmd_str_split[3].lstrip().split(":")   # hh:mm:ss.ss
-    description = cmd_str_split[-1].lstrip()
+    sign = cmd_str_split[2].strip()    # + or -
+    hours, minutes, seconds = cmd_str_split[3].strip().split(":")   # hh:mm:ss.ss
+    description = cmd_str_split[-1].strip()
 
-    logging.info(f"Scheduling {func_name} at {ref_moment}{sign}{cmd_str_split[3].lstrip()}")
+    logging.info(f"Scheduling {func_name} at {ref_moment}{sign}{cmd_str_split[3].strip()}")
 
     args = cmd_str_split[4:-1]
 
