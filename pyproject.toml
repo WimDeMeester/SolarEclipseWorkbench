@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solareclipseworkbench"
-version = "1.3.0"
+version = "1.4.0"
 description = "Tools to photograph solar eclipses"
 authors = ["Sara Regibo <sararegibo@gmail.com>", "Wim De Meester <deepskywim@gmail.com"]
 license = "GPL-3.0-or-later"
@@ -32,7 +32,12 @@ pytest = "^9"
 pytz = "^2025"
 pynmea2 = "^1.19.0"
 pyserial = "^3.5"
+geopy = "^2.4.1"
+requests = "^2.31.0"
 
+[tool.poetry.scripts]
+sew = "solareclipseworkbench.gui:main"
+sew_wizard = "solareclipseworkbench.wizard:main"
 
 [build-system]
 requires = ["poetry-core"]
