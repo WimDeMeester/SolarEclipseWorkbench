@@ -4,6 +4,7 @@ Solar Eclipse Workbench Configuration Wizard
 A PyQt6-based wizard to generate eclipse photography scripts interactively.
 """
 import sys
+import math
 import json
 import time
 import requests
@@ -20,12 +21,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QPushButton, QMessageBox, QWidget
 )
 
-try:
-    from geopy.geocoders import Nominatim
-    from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-    GEOPY_AVAILABLE = True
-except ImportError:
-    GEOPY_AVAILABLE = False
+from solareclipseworkbench.location_ui import ConfigManager, GeocodingWorker, GEOPY_AVAILABLE, LocationWidget
 
 # Import eclipse-specific modules
 from astropy.time import Time
@@ -50,204 +46,7 @@ PAGE_PHENOMENA = 3
 PAGE_SUMMARY = 4
 
 
-class ConfigManager:
-    """Manages saving and loading of camera and location configurations."""
-    
-    def __init__(self):
-        self.config_file = Path.home() / ".sew_wizard_config.json"
-        self.config = self._load_config()
-    
-    def _load_config(self) -> Dict:
-        """Load configuration from file or create default."""
-        if self.config_file.exists():
-            try:
-                with open(self.config_file, 'r') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, IOError):
-                return self._default_config()
-        return self._default_config()
-    
-    def _default_config(self) -> Dict:
-        """Return default configuration structure."""
-        return {
-            "cameras": [],
-            "locations": [],
-            "last_used": {
-                "camera": None,
-                "location": None
-            }
-        }
-    
-    def save_config(self):
-        """Save configuration to file."""
-        try:
-            with open(self.config_file, 'w') as f:
-                json.dump(self.config, f, indent=2)
-        except IOError as e:
-            print(f"Warning: Could not save configuration: {e}")
-    
-    def add_camera(self, name: str, focal_length: int, aperture_min: float, 
-                   aperture_max: float, filter_nd: str, preferred_iso: int = 400,
-                   iso_min: int = 100, iso_max: int = 1600) -> None:
-        """Add or update a camera configuration."""
-        # Check if camera already exists
-        for camera in self.config["cameras"]:
-            if camera["name"] == name:
-                # Update existing camera
-                camera.update({
-                    "focal_length": focal_length,
-                    "aperture_min": aperture_min,
-                    "aperture_max": aperture_max,
-                    "filter_nd": filter_nd,
-                    "preferred_iso": preferred_iso,
-                    "iso_min": iso_min,
-                    "iso_max": iso_max
-                })
-                self.save_config()
-                return
-        
-        # Add new camera
-        self.config["cameras"].append({
-            "name": name,
-            "focal_length": focal_length,
-            "aperture_min": aperture_min,
-            "aperture_max": aperture_max,
-            "filter_nd": filter_nd,
-            "preferred_iso": preferred_iso,
-            "iso_min": iso_min,
-            "iso_max": iso_max
-        })
-        self.save_config()
-    
-    def get_cameras(self) -> List[Dict]:
-        """Get all saved cameras."""
-        return self.config["cameras"]
-    
-    def get_camera(self, name: str) -> Optional[Dict]:
-        """Get a specific camera by name."""
-        for camera in self.config["cameras"]:
-            if camera["name"] == name:
-                return camera
-        return None
-    
-    def add_location(self, name: str, latitude: float, longitude: float, altitude: float) -> None:
-        """Add or update a custom location."""
-        # Check if location already exists
-        for location in self.config["locations"]:
-            if location["name"] == name:
-                # Update existing location
-                location.update({
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "altitude": altitude
-                })
-                self.save_config()
-                return
-        
-        # Add new location
-        self.config["locations"].append({
-            "name": name,
-            "latitude": latitude,
-            "longitude": longitude,
-            "altitude": altitude
-        })
-        self.save_config()
-    
-    def get_locations(self) -> List[Dict]:
-        """Get all saved custom locations."""
-        return self.config["locations"]
-    
-    def get_location(self, name: str) -> Optional[Dict]:
-        """Get a specific location by name."""
-        for location in self.config["locations"]:
-            if location["name"] == name:
-                return location
-        return None
-    
-    def set_last_used_camera(self, name: str) -> None:
-        """Set the last used camera."""
-        self.config["last_used"]["camera"] = name
-        self.save_config()
-    
-    def set_last_used_location(self, name: str) -> None:
-        """Set the last used location."""
-        self.config["last_used"]["location"] = name
-        self.save_config()
-    
-    def get_last_used_camera(self) -> Optional[str]:
-        """Get the last used camera name."""
-        return self.config["last_used"].get("camera")
-    
-    def get_last_used_location(self) -> Optional[str]:
-        """Get the last used location name."""
-        return self.config["last_used"].get("location")
-
-
-
-class GeocodingWorker(QThread):
-    """Background worker for geocoding to avoid blocking the UI."""
-    
-    # Signals
-    finished = pyqtSignal(dict)  # Emits result dict with lat, lon, alt, display_name
-    error = pyqtSignal(str)  # Emits error message
-    
-    def __init__(self, address: str):
-        super().__init__()
-        self.address = address
-    
-    def run(self):
-        """Perform geocoding in background thread."""
-        try:
-            if not GEOPY_AVAILABLE:
-                self.error.emit("Geopy library not installed. Install with: pip install geopy")
-                return
-            
-            # Initialize geocoder with user agent
-            geolocator = Nominatim(user_agent="SolarEclipseWorkbench/1.3.0")
-            
-            # Add delay to respect Nominatim usage policy (1 request per second)
-            time.sleep(1)
-            
-            # Geocode the address
-            location = geolocator.geocode(self.address, timeout=10)
-            
-            if not location:
-                self.error.emit(f"Address not found: {self.address}")
-                return
-            
-            latitude = location.latitude
-            longitude = location.longitude
-            display_name = location.address
-            
-            # Get elevation from Open-Elevation API
-            altitude = 0.0
-            try:
-                response = requests.get(
-                    f"https://api.open-elevation.com/api/v1/lookup?locations={latitude},{longitude}",
-                    timeout=10
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("results"):
-                        altitude = float(data["results"][0]["elevation"])
-            except Exception as e:
-                # If elevation lookup fails, continue with 0
-                print(f"Elevation lookup failed: {e}")
-            
-            # Emit result
-            self.finished.emit({
-                "latitude": latitude,
-                "longitude": longitude,
-                "altitude": altitude,
-                "display_name": display_name
-            })
-            
-        except GeocoderTimedOut:
-            self.error.emit("Geocoding service timed out. Please try again.")
-        except GeocoderServiceError as e:
-            self.error.emit(f"Geocoding service error: {str(e)}")
-        except Exception as e:
-            self.error.emit(f"Error: {str(e)}")
+# ConfigManager, GeocodingWorker, and LocationWidget are imported from location_ui.
 
 
 class IntroPage(QWizardPage):
@@ -327,83 +126,10 @@ class EclipseConfigPage(QWizardPage):
         # Location selection group
         location_group = QGroupBox("Observation Location")
         location_layout = QVBoxLayout()
-        
-        location_select_layout = QHBoxLayout()
-        location_select_layout.addWidget(QLabel("Select Location:"))
-        self.location_combo = QComboBox()
-        
-        # Add predefined locations
-        self.location_combo.addItems(sorted(self.LOCATIONS.keys()))
-        
-        # Add saved custom locations
-        for saved_location in self.config_manager.get_locations():
-            loc_name = f"{saved_location['name']} (Saved)"
-            self.location_combo.addItem(loc_name)
-        
-        location_select_layout.addWidget(self.location_combo, 1)
-        location_layout.addLayout(location_select_layout)
-        
-        # Address search section
-        if GEOPY_AVAILABLE:
-            address_search_layout = QHBoxLayout()
-            address_search_layout.addWidget(QLabel("Search Address:"))
-            self.address_search_edit = QLineEdit()
-            self.address_search_edit.setPlaceholderText("Enter city, street, or landmark")
-            address_search_layout.addWidget(self.address_search_edit, 1)
-            
-            self.search_btn = QPushButton("Search")
-            self.search_btn.clicked.connect(self._search_address)
-            self.search_btn.setToolTip("Search for address and auto-fill coordinates & elevation")
-            address_search_layout.addWidget(self.search_btn)
-            
-            location_layout.addLayout(address_search_layout)
-            
-            # Status label for search feedback
-            self.search_status_label = QLabel("")
-            self.search_status_label.setStyleSheet("QLabel { color: #555; font-style: italic; }")
-            self.search_status_label.setWordWrap(True)
-            location_layout.addWidget(self.search_status_label)
-        
-        # Custom location fields
-        self.custom_location_widget = QWidget()
-        custom_layout = QGridLayout()
-        custom_layout.setContentsMargins(0, 0, 0, 0)
-        
-        custom_layout.addWidget(QLabel("Location Name:"), 0, 0)
-        self.location_name_edit = QLineEdit()
-        self.location_name_edit.setPlaceholderText("Name this location to save it")
-        custom_layout.addWidget(self.location_name_edit, 0, 1)
-        
-        custom_layout.addWidget(QLabel("Longitude [°]:"), 1, 0)
-        self.longitude_edit = QLineEdit()
-        self.longitude_edit.setPlaceholderText("-180 to 180 (E: +, W: -)")
-        longitude_validator = QDoubleValidator(-180.0, 180.0, 5)
-        self.longitude_edit.setValidator(longitude_validator)
-        custom_layout.addWidget(self.longitude_edit, 1, 1)
-        
-        custom_layout.addWidget(QLabel("Latitude [°]:"), 2, 0)
-        self.latitude_edit = QLineEdit()
-        self.latitude_edit.setPlaceholderText("-90 to 90 (N: +, S: -)")
-        latitude_validator = QDoubleValidator(-90.0, 90.0, 5)
-        self.latitude_edit.setValidator(latitude_validator)
-        custom_layout.addWidget(self.latitude_edit, 2, 1)
-        
-        custom_layout.addWidget(QLabel("Altitude [m]:"), 3, 0)
-        self.altitude_edit = QLineEdit()
-        self.altitude_edit.setPlaceholderText("Altitude above sea level")
-        altitude_validator = QDoubleValidator(-500.0, 9000.0, 1)
-        self.altitude_edit.setValidator(altitude_validator)
-        custom_layout.addWidget(self.altitude_edit, 3, 1)
-        
-        # Save location button
-        self.save_location_btn = QPushButton("Save Location")
-        self.save_location_btn.clicked.connect(self._save_location)
-        self.save_location_btn.setToolTip("Save this location for future use")
-        custom_layout.addWidget(self.save_location_btn, 4, 1)
-        
-        self.custom_location_widget.setLayout(custom_layout)
-        location_layout.addWidget(self.custom_location_widget)
-        
+
+        self.location_widget = LocationWidget(self.config_manager)
+        location_layout.addWidget(self.location_widget)
+
         location_group.setLayout(location_layout)
         layout.addWidget(location_group)
         
@@ -425,32 +151,12 @@ class EclipseConfigPage(QWizardPage):
         self.registerField("eclipse_date*", self.eclipse_date_field)
         self.registerField("eclipse_type", self.eclipse_type_field)
         self.registerField("location", self.location_name_field)
-        self.registerField("longitude", self.longitude_edit)
-        self.registerField("latitude", self.latitude_edit)
-        self.registerField("altitude", self.altitude_edit)
+        self.registerField("longitude", self.location_widget.longitude_edit)
+        self.registerField("latitude", self.location_widget.latitude_edit)
+        self.registerField("altitude", self.location_widget.altitude_edit)
         
         # Initialize - populate eclipses after all UI elements are created
         self._populate_eclipses()
-        
-        # NOW connect signal and set initial value (after all widgets exist)
-        self.location_combo.currentTextChanged.connect(self._on_location_changed)
-        
-        # Try to select last used location
-        last_location = self.config_manager.get_last_used_location()
-        if last_location:
-            # Check if it's a saved custom location
-            saved_index = self.location_combo.findText(f"{last_location} (Saved)")
-            if saved_index >= 0:
-                self.location_combo.setCurrentIndex(saved_index)
-            else:
-                # Check if it's a predefined location
-                index = self.location_combo.findText(last_location)
-                if index >= 0:
-                    self.location_combo.setCurrentIndex(index)
-                else:
-                    self.location_combo.setCurrentText("Custom")
-        else:
-            self.location_combo.setCurrentText("Custom")
     
     def initializePage(self):
         """Called when the page is shown - ensure eclipse data is loaded."""
@@ -531,175 +237,27 @@ class EclipseConfigPage(QWizardPage):
             eclipse_name = f"{eclipse['type']} Solar Eclipse {date_parts[2]}"
             self.eclipse_name_field.setText(eclipse_name)
     
-    def _on_location_changed(self, location_name):
-        """Update location fields when selection changes."""
-        # Check if it's a saved custom location
-        if location_name.endswith(" (Saved)"):
-            actual_name = location_name.replace(" (Saved)", "")
-            saved_location = self.config_manager.get_location(actual_name)
-            if saved_location:
-                self.custom_location_widget.setEnabled(False)
-                self.location_name_edit.setText(saved_location["name"])
-                self.longitude_edit.setText(str(saved_location["longitude"]))
-                self.latitude_edit.setText(str(saved_location["latitude"]))
-                self.altitude_edit.setText(str(saved_location["altitude"]))
-                self.location_name_field.setText(actual_name)
-                return
-        
-        # Check if it's a predefined location
-        if location_name in self.LOCATIONS:
-            lon, lat, alt = self.LOCATIONS[location_name]
-            
-            if location_name == "Custom":
-                # Show custom fields, clear values
-                self.custom_location_widget.setEnabled(True)
-                self.location_name_edit.clear()
-                self.longitude_edit.clear()
-                self.latitude_edit.clear()
-                self.altitude_edit.clear()
-                self.location_name_field.setText("Custom Location")
-            else:
-                # Populate fields with predefined values
-                self.custom_location_widget.setEnabled(False)
-                self.location_name_edit.setText(location_name)
-                self.longitude_edit.setText(str(lon))
-                self.latitude_edit.setText(str(lat))
-                self.altitude_edit.setText(str(alt))
-                self.location_name_field.setText(location_name)
-    
-    def _save_location(self):
-        """Save current custom location."""
-        location_name = self.location_name_edit.text().strip()
-        if not location_name:
-            QMessageBox.warning(self, "Invalid Location Name", "Please enter a name for this location.")
-            return
-        
-        # Validate coordinates
-        try:
-            longitude = float(self.longitude_edit.text())
-            latitude = float(self.latitude_edit.text())
-            altitude = float(self.altitude_edit.text())
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Coordinates", "Please enter valid coordinates.")
-            return
-        
-        # Save location
-        self.config_manager.add_location(
-            name=location_name,
-            latitude=latitude,
-            longitude=longitude,
-            altitude=altitude
-        )
-        
-        # Update combo box if this is a new location
-        combo_text = f"{location_name} (Saved)"
-        if self.location_combo.findText(combo_text) < 0:
-            self.location_combo.addItem(combo_text)
-            self.location_combo.setCurrentText(combo_text)
-        
-        # Set as last used
-        self.config_manager.set_last_used_location(location_name)
-        
-        QMessageBox.information(self, "Location Saved", f"Location '{location_name}' has been saved.")
-        
-        # Disable custom location widget after saving
-        self.custom_location_widget.setEnabled(False)
-    
-    def _search_address(self):
-        """Search for address and auto-fill coordinates."""
-        if not GEOPY_AVAILABLE:
-            QMessageBox.warning(
-                self, 
-                "Geocoding Not Available",
-                "Geocoding requires the 'geopy' library.\n\n"
-                "Install it with: pip install geopy"
-            )
-            return
-        
-        address = self.address_search_edit.text().strip()
-        if not address:
-            QMessageBox.warning(self, "Empty Address", "Please enter an address to search.")
-            return
-        
-        # Disable search button and show status
-        self.search_btn.setEnabled(False)
-        self.search_status_label.setText("Searching... (this may take a few seconds)")
-        self.search_status_label.setStyleSheet("QLabel { color: #555; font-style: italic; }")
-        
-        # Create and start worker thread
-        self.geocoding_worker = GeocodingWorker(address)
-        self.geocoding_worker.finished.connect(self._on_geocoding_finished)
-        self.geocoding_worker.error.connect(self._on_geocoding_error)
-        self.geocoding_worker.start()
-    
-    def _on_geocoding_finished(self, result: dict):
-        """Handle successful geocoding result."""
-        # Re-enable search button
-        self.search_btn.setEnabled(True)
-        
-        # Select "Custom" in location combo first (this enables the custom_location_widget)
-        self.location_combo.setCurrentText("Custom")
-        
-        # Make sure the custom location widget is enabled
-        self.custom_location_widget.setEnabled(True)
-        
-        # Fill in the fields
-        self.longitude_edit.setText(f"{result['longitude']:.5f}")
-        self.latitude_edit.setText(f"{result['latitude']:.5f}")
-        self.altitude_edit.setText(f"{result['altitude']:.1f}")
-        
-        # Extract city/location name from display_name
-        # Format: "Street, City, State, Country"
-        # We'll use the first significant part
-        display_parts = result['display_name'].split(',')
-        if len(display_parts) >= 2:
-            # Use city name (usually second part) or first part if it's a landmark
-            suggested_name = display_parts[0].strip() if len(display_parts[0]) < 50 else display_parts[1].strip()
-        else:
-            suggested_name = display_parts[0].strip()
-        
-        # Only suggest name if field is empty
-        if not self.location_name_edit.text():
-            self.location_name_edit.setText(suggested_name)
-        
-        # Show success message
-        self.search_status_label.setText(
-            f"✓ Found: {result['display_name']}\n"
-            f"Coordinates: {result['latitude']:.5f}°, {result['longitude']:.5f}° | "
-            f"Elevation: {result['altitude']:.0f}m"
-        )
-        self.search_status_label.setStyleSheet("QLabel { color: #2a7d2a; font-style: italic; }")
-    
-    def _on_geocoding_error(self, error_msg: str):
-        """Handle geocoding error."""
-        # Re-enable search button
-        self.search_btn.setEnabled(True)
-        
-        # Show error message
-        self.search_status_label.setText(f"✗ Error: {error_msg}")
-        self.search_status_label.setStyleSheet("QLabel { color: #c40000; font-style: italic; }")
-        
-        QMessageBox.warning(self, "Geocoding Error", error_msg)
-
-    
     def validatePage(self):
         """Validate page before moving to next."""
         # Check that location coordinates are provided
-        if not self.longitude_edit.text() or not self.latitude_edit.text() or not self.altitude_edit.text():
+        if (not self.location_widget.longitude_edit.text()
+                or not self.location_widget.latitude_edit.text()
+                or not self.location_widget.altitude_edit.text()):
             QMessageBox.warning(
                 self,
                 "Missing Location Data",
                 "Please provide longitude, latitude, and altitude for your observation location."
             )
             return False
-        
-        # Save last used location
-        location_name = self.location_combo.currentText()
+
+        # Update the hidden location field for page registration
+        location_name = self.location_widget.location_combo.currentText()
         if location_name.endswith(" (Saved)"):
-            location_name = location_name.replace(" (Saved)", "")
+            location_name = location_name[:-len(" (Saved)")]
+        self.location_name_field.setText(location_name)
         if location_name != "Custom":
             self.config_manager.set_last_used_location(location_name)
-        
+
         return True
 
 
@@ -1756,12 +1314,12 @@ class SummaryPage(QWizardPage):
                 
                 # Determine burst parameter based on camera brand
                 is_nikon = 'nikon' in camera_name.lower()
-                beads_burst_param = 30 if is_nikon else 3  # Nikon: 30 pictures, Canon: 3 seconds
-                diamond_burst_param = 30 if is_nikon else 3
+                beads_burst_param = 30 if is_nikon else 2  # Nikon: 30 pictures, Canon: 2 seconds
+                diamond_burst_param = 30 if is_nikon else 2
                 
-                # Start beads burst 1s earlier, diamond ring 1s later to avoid overlap (each burst ~3s + 2s delay)
-                lines.append(f'take_burst, C2, -, 0:00:06.0, {camera_name}, {beads_shutter}, {aperture}, {preferred_iso}, {beads_burst_param}, "Pre-C2 beads"')
-                lines.append(f'take_burst, C2, -, 0:00:01.0, {camera_name}, {diamond_shutter}, {aperture}, {preferred_iso}, {diamond_burst_param}, "C2 diamond ring"')
+                # Start beads burst 1s earlier, diamond ring 1s later to avoid overlap (each burst ~2s + 3s gap)
+                lines.append(f'take_burst, C2, -, 0:00:08.0, {camera_name}, {beads_shutter}, {aperture}, {preferred_iso}, {beads_burst_param}, "Pre-C2 beads"')
+                lines.append(f'take_burst, C2, -, 0:00:02.0, {camera_name}, {diamond_shutter}, {aperture}, {preferred_iso}, {diamond_burst_param}, "C2 diamond ring"')
                 lines.append("")
             
             # Totality/Annularity - Corona
@@ -1882,7 +1440,9 @@ class SummaryPage(QWizardPage):
                                 
                                 # If no conflict, add the shot
                                 if not conflicts:
-                                    offset_str = f"{int(current_time // 3600)}:{int((current_time % 3600) // 60):02d}:{int(current_time % 60):02d}.0"
+                                    # Ceil to whole second so truncation never schedules earlier than intended
+                                    written_time = math.ceil(current_time)
+                                    offset_str = f"{int(written_time // 3600)}:{int((written_time % 3600) // 60):02d}:{int(written_time % 60):02d}.0"
                                     corona_shot_count += 1
                                     
                                     # Note if ISO or aperture was adjusted from preferred
@@ -2024,12 +1584,12 @@ class SummaryPage(QWizardPage):
                 
                 # Determine burst parameter based on camera brand
                 is_nikon = 'nikon' in camera_name.lower()
-                diamond_burst_param = 30 if is_nikon else 3  # Nikon: 30 pictures, Canon: 3 seconds
-                beads_burst_param = 30 if is_nikon else 3
+                diamond_burst_param = 30 if is_nikon else 2  # Nikon: 30 pictures, Canon: 2 seconds
+                beads_burst_param = 30 if is_nikon else 2
                 
-                # Start diamond ring 1s earlier, beads burst 1s later to avoid overlap (each burst ~3s + 2s delay)
+                # Start diamond ring 1s earlier, beads burst 1s later to avoid overlap (each burst ~2s + 3s gap)
                 lines.append(f'take_burst, C3, +, 0:00:01.0, {camera_name}, {diamond_c3_shutter}, {aperture}, {preferred_iso}, {diamond_burst_param}, "C3 diamond ring"')
-                lines.append(f'take_burst, C3, +, 0:00:06.0, {camera_name}, {beads_c3_shutter}, {aperture}, {preferred_iso}, {beads_burst_param}, "Post-C3 beads"')
+                lines.append(f'take_burst, C3, +, 0:00:08.0, {camera_name}, {beads_c3_shutter}, {aperture}, {preferred_iso}, {beads_burst_param}, "Post-C3 beads"')
                 lines.append("# REPLACE SOLAR FILTER after C3!")
                 lines.append("")
         
