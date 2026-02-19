@@ -313,8 +313,8 @@ The functionality of the toolbar buttons is as follows (from left to right):
 #### Saving settings
 
 - When pressing the "Save" icon, the location and eclipse date (if selected) will be stored in a settings file, together with the applied date and time format.
-- The standard settings framework of `PyQt6` (`QSettings`) will be used: it stores the settings as `SolarEclipseWorkbench.ini`.
-- Next time you open the UI (from the same location), this settings file will be loaded and the specified data will be made available in the UI.
+- The standard settings framework of `PyQt6` (`QSettings`) will be used: it stores the settings as `~/.SolarEclipseWorkbench.ini` (a hidden file in your home directory).
+- Next time you open the UI, this settings file will be loaded and the specified data will be made available in the UI.
 - In case command line arguments are used to open the UI, these take priority over the values from the settings file.
 
 ## Script file format

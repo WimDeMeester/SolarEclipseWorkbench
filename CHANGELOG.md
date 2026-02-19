@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and the main GUI (`gui.py`), eliminating code duplication.
 
 ### Changed
-- (Describe any changes here)
+- **Settings file location**: The GUI settings file (`SolarEclipseWorkbench.ini`) is now stored as a hidden file in the home directory (`~/.SolarEclipseWorkbench.ini`) instead of the current working directory, consistent with `~/.sew_wizard_config.json`.
 
 ### Fixed
 - (Describe any changes here)

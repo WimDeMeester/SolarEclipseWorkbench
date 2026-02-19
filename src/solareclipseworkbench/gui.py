@@ -1081,7 +1081,7 @@ class SolarEclipseController(Observer):
         automatically.
         """
 
-        self.view.settings = QSettings("./SolarEclipseWorkbench.ini", QSettings.Format.IniFormat)
+        self.view.settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"), QSettings.Format.IniFormat)
 
         # Date & time format
         # TODO Requires Python 3.7
