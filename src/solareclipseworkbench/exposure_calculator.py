@@ -367,17 +367,20 @@ def format_shutter_speed(exposure_seconds: float) -> str:
     rounded_exposure = round_to_camera_shutter_speed(exposure_seconds)
     
     if rounded_exposure >= 1.0:
-        # Long exposure - format as "Xs"
+        # Long exposure - format as plain number (no 's' suffix: gphoto2 uses "4" not "4s")
         if rounded_exposure == int(rounded_exposure):
-            return f"{int(rounded_exposure)}s"
+            return f"{int(rounded_exposure)}"
         else:
-            return f"{rounded_exposure:.1f}s"
+            return f"{rounded_exposure:.1f}"
     else:
-        # Fast shutter - format as "1/X"
+        # Fast shutter - format as "1/X", but use decimal for denominator <= 2
+        # (Canon cameras use "0.5" not "1/2" in their gphoto2 widget choices)
         denominator = round(1.0 / rounded_exposure)
         # Handle edge case where denominator is 1 (e.g., due to floating-point precision)
         if denominator == 1:
-            return "1s"
+            return "1"
+        if denominator == 2:
+            return "0.5"
         return f"1/{denominator}"
 
 
