@@ -339,7 +339,7 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         remote_release = gp.check_result(gp.gp_widget_get_child_by_name(config, 'eosremoterelease'))
         gp.gp_widget_set_value(remote_release, "Press Full")
         # set config
-        gp.gp_camera_set_config(target, config, context)
+        _set_gp_config(camera, config, context)
         time.sleep(duration)
 
         # Release the button
