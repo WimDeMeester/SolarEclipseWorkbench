@@ -958,7 +958,19 @@ class SummaryPage(QWizardPage):
         
         camera_name = wizard.field('camera_name')
         eclipse_type = wizard.field('eclipse_type')
-        
+
+        # Pre-compute reference moments to determine whether the observer's location
+        # actually experiences totality/annularity.  This differs from eclipse_type,
+        # which is the *global* eclipse type: an observer in the partial zone of a
+        # "Total" eclipse has no C2/C3 at their location.
+        has_totality = False
+        try:
+            _pre_timings, _, _ = calculate_reference_moments(longitude, latitude, altitude, eclipse_time)
+            has_totality = 'C2' in _pre_timings and 'C3' in _pre_timings
+        except Exception:
+            # Fallback: assume totality only for globally total/annular/hybrid eclipses
+            has_totality = eclipse_type in ["Total", "Annular", "Hybrid"]
+
         # Voice prompts - load from file if enabled
         if wizard.field('voice_enabled'):
             voice_type = "basic" if wizard.field('voice_basic') else "extended"
@@ -1094,12 +1106,12 @@ class SummaryPage(QWizardPage):
                 lines.append("")
         
         # Partial phase - equispaced shots with filter
-        if wizard.field('equispaced') and eclipse_type in ["Total", "Annular"]:
+        if wizard.field('equispaced'):
             try:
                 # Get reference moments for detailed partial phase planning
                 timings, _, _ = calculate_reference_moments(longitude, latitude, altitude, eclipse_time)
-                
-                if 'C1' in timings and 'C2' in timings and 'C3' in timings and 'C4' in timings:
+
+                if has_totality and 'C1' in timings and 'C2' in timings and 'C3' in timings and 'C4' in timings:
                     c1_time = timings['C1'].time_utc
                     c2_time = timings['C2'].time_utc
                     c3_time = timings['C3'].time_utc
@@ -1287,26 +1299,118 @@ class SummaryPage(QWizardPage):
                                 sync_offset = int(offset_seconds - 5)  # 5 seconds before the shot
                                 sync_offset_str = f"{int(sync_offset // 3600)}:{int((sync_offset % 3600) // 60):02d}:{int(sync_offset % 60):02d}.0"
                                 lines.append(f'sync_cameras, C3, +, {sync_offset_str}, "Camera sync @ {(c3_time + timedelta(seconds=sync_offset)).strftime("%H:%M:%S")}"')
-                    
+
+                elif 'C1' in timings and 'C4' in timings:
+                    # Partial-only eclipse at this location (no totality/annularity)
+                    c1_time = timings['C1'].time_utc
+                    c4_time = timings['C4'].time_utc
+
+                    lines.append("# Partial phase (C1 to C4) - with solar filter")
+
+                    if wizard.field('partial_magnitude'):
+                        magnitude_interval = wizard.field('magnitude_value')
+                        lines.append(f"# Shots every {magnitude_interval}% of magnitude change")
+                    else:
+                        seconds_interval = wizard.field('seconds_value')
+                        lines.append(f"# Shots every {seconds_interval} seconds")
+                    lines.append("#")
+
+                    buffer_seconds = 10
+                    c1_c4_duration = (c4_time - c1_time).total_seconds() - 2 * buffer_seconds
+                    c1_start_time = c1_time + timedelta(seconds=buffer_seconds)
+                    c4_end_time = c4_time - timedelta(seconds=buffer_seconds)
+
+                    if wizard.field('partial_magnitude'):
+                        magnitude_interval = wizard.field('magnitude_value')
+                        if magnitude_interval is None or magnitude_interval <= 0:
+                            magnitude_interval = 2.0
+                        num_shots = max(3, int(100 / magnitude_interval))
+                        time_interval = c1_c4_duration / num_shots
+                    else:
+                        seconds_interval = wizard.field('seconds_value')
+                        if seconds_interval is None or seconds_interval <= 0:
+                            seconds_interval = 60
+                        time_interval = seconds_interval
+                        num_shots = int(c1_c4_duration / time_interval)
+
+                    partial_shots_c1_c4 = []
+                    for i in range(num_shots):
+                        shot_time = c1_start_time + timedelta(seconds=i * time_interval)
+                        if shot_time >= c4_end_time:
+                            break
+
+                        sun_alt = calculate_sun_altitude_at_time(
+                            shot_time, eclipse_time, longitude, latitude, altitude
+                        )
+
+                        exposure = calculate_exposure(
+                            "partial", sun_alt, altitude, preferred_iso, aperture, nd_filter
+                        )
+
+                        adjusted_iso = preferred_iso
+                        max_iso = int(wizard.field('iso_max'))
+
+                        while exposure > 1/30 and adjusted_iso < max_iso:
+                            adjusted_iso *= 2
+                            if adjusted_iso > max_iso:
+                                adjusted_iso = max_iso
+                                break
+                            exposure = calculate_exposure(
+                                "partial", sun_alt, altitude, adjusted_iso, aperture, nd_filter
+                            )
+
+                        shutter = format_shutter_speed(exposure)
+                        offset_seconds = (shot_time - c1_time).total_seconds()
+                        offset_str = f"{int(offset_seconds // 3600)}:{int((offset_seconds % 3600) // 60):02d}:{int(offset_seconds % 60):02d}.0"
+                        partial_shots_c1_c4.append((offset_str, shutter, adjusted_iso, shot_time, sun_alt))
+
+                    sync_interval_minutes = 0
+                    if wizard.field('sync_enabled'):
+                        sync_interval = wizard.field('sync_interval')
+                        sync_interval_minutes = int(sync_interval.split()[0])
+
+                    shot_count = 0
+                    for idx, (offset, shutter, iso, shot_time, sun_alt) in enumerate(partial_shots_c1_c4):
+                        if sun_alt < 0:
+                            continue
+                        shot_count += 1
+                        time_str = shot_time.strftime('%H:%M:%S')
+                        iso_note = f" (ISO {iso})" if iso != preferred_iso else ""
+                        lines.append(f'take_picture, C1, +, {offset}, {camera_name}, {shutter}, {aperture}, {iso}, "Partial #{shot_count} @ {time_str}, sun {sun_alt:.1f}°{iso_note}"')
+
+                        if sync_interval_minutes > 0 and idx > 0:
+                            offset_seconds_val = (shot_time - c1_time).total_seconds()
+                            if offset_seconds_val % (sync_interval_minutes * 60) < time_interval and offset_seconds_val > sync_interval_minutes * 60:
+                                sync_offset = int(offset_seconds_val - 5)
+                                sync_offset_str = f"{int(sync_offset // 3600)}:{int((sync_offset % 3600) // 60):02d}:{int(sync_offset % 60):02d}.0"
+                                lines.append(f'sync_cameras, C1, +, {sync_offset_str}, "Camera sync @ {(c1_time + timedelta(seconds=sync_offset)).strftime("%H:%M:%S")}"')
+                    lines.append("")
+
             except Exception as e:
                 # Fallback to simple examples if calculation fails
                 lines.append("# Partial phase shots (with solar filter)")
                 lines.append(f"# Warning: Could not calculate detailed partial phase: {str(e)}")
                 lines.append("# Using example shots - adjust timing based on your eclipse duration")
-                
+
                 if wizard.field('partial_magnitude'):
                     lines.append(f"# Interval: Every {wizard.field('magnitude_value')}% of magnitude")
                 else:
                     lines.append(f"# Interval: Every {wizard.field('seconds_value')} seconds")
-                
+
                 partial_shutter = get_shutter('partial_c1', '1/800')
-                lines.append(f'take_picture, C2, -, 0:10:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial C1-C2 (10 min before C2)"')
-                lines.append(f'take_picture, C2, -, 0:05:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial C1-C2 (5 min before C2)"')
-                lines.append(f'take_picture, C2, -, 0:01:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial C1-C2 (1 min before C2)"')
+                if has_totality:
+                    lines.append(f'take_picture, C2, -, 0:10:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial C1-C2 (10 min before C2)"')
+                    lines.append(f'take_picture, C2, -, 0:05:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial C1-C2 (5 min before C2)"')
+                    lines.append(f'take_picture, C2, -, 0:01:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial C1-C2 (1 min before C2)"')
+                else:
+                    lines.append(f'take_picture, C1, +, 0:10:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial phase (C1 + 10 min)"')
+                    lines.append(f'take_picture, MAX, -, 0:05:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial phase (5 min before MAX)"')
+                    lines.append(f'take_picture, MAX, +, 0:00:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial phase (MAX)"')
+                    lines.append(f'take_picture, MAX, +, 0:05:00.0, {camera_name}, {partial_shutter}, {aperture}, {preferred_iso}, "Partial phase (5 min after MAX)"')
                 lines.append("")
         
-        # Diamond rings, Baily's beads, Chromosphere (only for Total/Annular)
-        if eclipse_type in ["Total", "Annular"]:
+        # Diamond rings, Baily's beads, Chromosphere (only for locations with totality/annularity)
+        if has_totality:
             if wizard.field('diamond') or wizard.field('bailys'):
                 lines.append("# Diamond ring and Baily's beads (C2) - REMOVE SOLAR FILTER!")
                 beads_shutter = get_shutter('bailys_beads_c2', '1/500')
