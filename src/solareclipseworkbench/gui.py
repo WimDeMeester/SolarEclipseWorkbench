@@ -1202,7 +1202,11 @@ class LocationPopup(QWidget, Observable):
         # Shared location widget: saved-locations drop-down + address search + coordinate fields.
         config_manager = ConfigManager()
         self.location_widget = LocationWidget(config_manager)
-        if model.longitude is not None:
+        # Only fall back to model coordinates when no saved location was restored
+        # by the widget (i.e. the combo is still on "Custom"). If a saved location
+        # was restored, its own coordinates should be shown, not the ones from the
+        # .SolarEclipseWorkbench.ini file.
+        if model.longitude is not None and self.location_widget.location_combo.currentText() == "Custom":
             self.location_widget.set_coordinates(
                 model.longitude, model.latitude, model.altitude
             )
