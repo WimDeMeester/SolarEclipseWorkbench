@@ -707,7 +707,7 @@ class SolarEclipseView(QMainWindow, Observable):
         """
 
         if eclipse_type == "Partial" or eclipse_type == "Annular":
-            self.eclipse_type.setText(eclipse_type + f" eclipse (magnitude: {round(magnitude, 2)})")
+            self.eclipse_type.setText(eclipse_type + f" eclipse ({round(magnitude, 2)})")
         elif eclipse_type == "No eclipse":
             self.eclipse_type.setText(eclipse_type)
         else:
