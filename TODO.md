@@ -18,37 +18,34 @@
 
 - [ ] Camera access only works when executing the command using `sudo`
 
-Hi,
-Im not familiar with the ptpcamerad process and stuff so the following solution might need a clear review before use.
+On macOS, `ptpcamerad` (the system PTP camera daemon) grabs the USB device as soon as gphoto2 releases it, causing `[-53] Could not claim the USB device` errors. There are two permanent fixes:
 
--Save this as a .plist file in /Library/LaunchDaemons/ (open -a Finder /Library/LaunchDaemons/)
+#### Option A — Image Capture app (recommended, no terminal required, survives macOS updates)
 
+1. Connect the camera
+2. Open **Image Capture** (`/Applications/Image Capture.app`)
+3. Select the camera in the sidebar
+4. Set the bottom-left dropdown **"Connecting this camera opens:"** to **No application**
 
-<?xml version="1.0" encoding="UTF-8"?>
- <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
- <plist version="1.0">
- <dict>
-     <key>Label</key>
-     <string>com.example.ptpcamerad</string>
-     <key>Program</key>
-     <string>/usr/bin/ptpcamerad</string> 
-     <key>RunAtLoad</key>
-     <true/>
-     <key>KeepAlive</key>
-     <false/>
-</dict>
- </plist>
+This tells macOS not to hand the camera to any PTP handler. Persists across reboots.
 
-Be sure to replace /usr/bin/ptpcamerad with your actual path of ptpcamerad (ps aux | grep ptpcamerad retrieves it)
+#### Option B — Disable ptpcamerad permanently via launchctl (macOS 11+)
 
-In terminal
-sudo chown root:wheel /Library/LaunchDaemons/com.example.ptpcamerad.plist
-sudo chmod 644 /Library/LaunchDaemons/com.example.ptpcamerad.plist
-To set permissions
+```bash
+sudo launchctl disable system/com.apple.ptpcamerad
+sudo launchctl kill TERM system/com.apple.ptpcamerad
+```
 
-In terminal
-sudo launchctl load /Library/LaunchDaemons/com.example.ptpcamerad.plist
+The `disable` command writes a persistent flag that survives reboots. Undo with:
 
-So basically what it does it sets the property KeepAlive of ptpcamera to False which prevents the process to respawn when killed. You can know kill it once (still spawns once when your computer boots) and you should be fine.
+```bash
+sudo launchctl enable system/com.apple.ptpcamerad
+```
 
-Again, i'm not familiar with this stuff. I found this solution thanks to chatgpt and it works for me. So if you find any issues or reason not to do it please let us know.
+#### Workaround (temporary, must be repeated after every reboot)
+
+Kill ptpcamerad once per session:
+```bash
+sudo killall ptpcamerad
+```
+It will not respawn until the next reboot.

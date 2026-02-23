@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [1.4.0] - 2026-02-23
 
 ### Added
 - **Location Search & Saved Locations in GUI**: The Location popup in the main GUI now includes the
@@ -16,20 +16,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - "Save Location" button to persist a named location for future sessions.
   - The map auto-updates whenever coordinates change (300 ms debounce); the manual "Plot" button has
     been removed.
-- **Shared `location_ui` Module**: `ConfigManager`, `GeocodingWorker`, and the new `LocationWidget`
-  are now maintained in a single `location_ui.py` module and reused by both the wizard (`wizard.py`)
-  and the main GUI (`gui.py`), eliminating code duplication.
-
-### Changed
-- **Settings file location**: The GUI settings file (`SolarEclipseWorkbench.ini`) is now stored as a hidden file in the home directory (`~/.SolarEclipseWorkbench.ini`) instead of the current working directory, consistent with `~/.sew_wizard_config.json`.
-
-### Fixed
-- (Describe any changes here)
-
-
-## [1.4.0] - 2026-02-18
-
-### Added
 - **Script Generation Wizard (`sew_wizard`)**: New PyQt6-based 5-page wizard for automated eclipse photography script generation
   - Page 1: Eclipse configuration with date, location, and free geocoding service
   - Page 2: Camera equipment settings (name, ISO range, aperture, sync intervals)
@@ -67,7 +53,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - **Script Parsing**: Updated `utils.py` and `scripts.py` to use Python csv module for robust parsing
+- **Settings file location**: The GUI settings file (`SolarEclipseWorkbench.ini`) is now stored as a hidden file in the home directory (`~/.SolarEclipseWorkbench.ini`) instead of the current working directory, consistent with `~/.sew_wizard_config.json`.
 
+### Fixed
+- **Nikon Z8 (and Z-series mirrorless) camera support**:
+  - Camera initialization no longer crashes when the `drivemode` widget is absent; the Z-series
+    uses a different capture-mode model and does not expose this gphoto2 widget.
+  - `__adapt_camera_settings` now automatically sets the camera to Manual (M) mode before
+    applying ISO, aperture, and shutter speed. On the Z8 the Exposure Time property is read-only
+    in any mode other than Manual, so the software previously failed to apply settings.
+  - The `autoiso` widget (also absent on the Z8) is now accessed in a try-except block so its
+    absence is silently ignored.
+  - Burst mode (`take_burst`) tries the `capturemode` widget first (older Nikon DSLRs) and falls
+    back to `stillcapturemode` with a numeric value (Z-series mirrorless cameras).
+  - `gp_widget_set_value` calls for exposure-program now pass a `str` value as required by the
+    gphoto2 Python binding (was incorrectly passing an `int`, causing a `TypeError`).
+- **macOS USB device contention (`[-53] Could not claim the USB device`)**:
+  - `get_free_space` and `get_space` now return the last successfully cached value when error -53
+    is received, instead of attempting a full camera reinitialisation (which always fails for the
+    same reason and produced cascading tracebacks).
+  - `get_battery_level` downgrades the -53 log message from WARNING to DEBUG, since the macOS
+    `ptpcamerad` daemon reclaiming the USB connection after a capture is normal and expected.
+  - `CameraOverview._gather_camera_info` reuses existing camera objects instead of opening fresh
+    USB connections on every sync, avoiding collisions with the connection held by `take_picture`.
+  - Updated TODO.md with permanent macOS solutions: setting "No application" in Image Capture
+    (recommended) or `sudo launchctl disable system/com.apple.ptpcamerad`.
 
 
 ## [1.3.0] - 2026-02-04
