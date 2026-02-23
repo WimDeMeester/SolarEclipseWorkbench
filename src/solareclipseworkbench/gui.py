@@ -1651,7 +1651,14 @@ class CameraOverviewTableModel(QAbstractTableModel):
         try:
             is_sim = getattr(self.view, 'is_simulator', False) and getattr(self.view, 'virtual_camera_enabled', False)
             vc_fps = getattr(self.view, 'virtual_camera_fps', 1)
-            camera_dict = get_camera_dict(is_simulator=is_sim)
+            # Reuse existing camera objects if available to avoid opening a new USB
+            # connection while a previous connection (e.g. from take_picture) is still held.
+            existing_map = getattr(self, 'camera_overview_dict', None)
+            if existing_map and all(v is not None for v in existing_map.values()):
+                camera_dict = existing_map
+                logging.debug('CameraOverview: reusing %d existing camera object(s)', len(camera_dict))
+            else:
+                camera_dict = get_camera_dict(is_simulator=is_sim)
 
             data = []
             for camera_name, camera in camera_dict.items():
