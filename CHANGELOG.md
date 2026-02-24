@@ -4,16 +4,80 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [1.4.0] - 2026-02-23
 
 ### Added
-- (Describe any changes here)
+- **Location Search & Saved Locations in GUI**: The Location popup in the main GUI now includes the
+  same saved-locations drop-down and address-search functionality.
+  - Saved-locations drop-down populated from `~/.sew_wizard_config.json`; last-used location is
+    automatically selected when the popup opens.
+  - Address-search bar (requires `geopy`) geocodes any city, street, or landmark via Nominatim and
+    fetches elevation from the Open-Elevation API in a background thread.
+  - "Save Location" button to persist a named location for future sessions.
+  - The map auto-updates whenever coordinates change (300 ms debounce); the manual "Plot" button has
+    been removed.
+- **Script Generation Wizard (`sew_wizard`)**: New PyQt6-based 5-page wizard for automated eclipse photography script generation
+  - Page 1: Eclipse configuration with date, location, and free geocoding service
+  - Page 2: Camera equipment settings (name, ISO range, aperture, sync intervals)
+  - Page 3: Phenomena selection (partial, diamond ring, Baily's beads, corona, prominences, chromosphere, earthshine, voice prompts, solar filter)
+  - Page 4: Summary and script preview
+- **Exposure Calculator**: Scientific exposure calculation based on Xavier Jubier's data
+  - 2D interpolation using sun altitude (0-60°) and observer altitude (0-3000m)
+  - 18 phenomenon exposure tables covering all eclipse phases
+  - Support for ND 4.0 and ND 5.0 solar filters
+  - Automatic ISO adjustment when exposures exceed hand-held limits (1/30s)
+  - Realistic camera shutter speeds (standard 1/3-stop increments)
+- **Comprehensive Partial Phase Coverage**: Generate 300+ shots automatically
+  - All partial phase shots from C1→C2 and C3→C4
+  - User-configurable intervals (time-based or magnitude-based)
+  - Sun altitude filtering to skip shots when sun is below horizon
+  - Applied to C1/C4 contact moments and all partial phases
+- **Free Geocoding Service**: Convert addresses to coordinates without API keys
+  - Nominatim (OpenStreetMap) for address → latitude/longitude
+  - Open-Elevation API for altitude lookup
+  - Background thread processing to prevent UI blocking
+  - Visual feedback with status messages
+- **Smart Totality Optimization**:
+  - Adaptive corona shot intervals based on totality duration
+  - Automatic gap filling between major phenomenon
+  - Earthshine feasibility checking (only during totality with sufficient time)
+  - Prominence shots in early totality
+  - Chromosphere shots before C3
+  - 10-second buffer zones to prevent command overlap
+- **Camera-Specific Optimizations**:
+  - Nikon burst mode: parameter = number of pictures (default: 30)
+  - Canon burst mode: parameter = duration in seconds (default: 3)
+  - Automatic detection based on camera name
+- **Time Format Improvements**: Consistent h:mm:ss.0 format throughout all scripts
+- **CSV Parsing**: Proper handling of commas in command descriptions for reliable import/export
 
 ### Changed
-- (Describe any changes here)
+- **Script Parsing**: Updated `utils.py` and `scripts.py` to use Python csv module for robust parsing
+- **Settings file location**: The GUI settings file (`SolarEclipseWorkbench.ini`) is now stored as a hidden file in the home directory (`~/.SolarEclipseWorkbench.ini`) instead of the current working directory, consistent with `~/.sew_wizard_config.json`.
 
 ### Fixed
-- (Describe any changes here)
+- **Nikon Z8 (and Z-series mirrorless) camera support**:
+  - Camera initialization no longer crashes when the `drivemode` widget is absent; the Z-series
+    uses a different capture-mode model and does not expose this gphoto2 widget.
+  - `__adapt_camera_settings` now automatically sets the camera to Manual (M) mode before
+    applying ISO, aperture, and shutter speed. On the Z8 the Exposure Time property is read-only
+    in any mode other than Manual, so the software previously failed to apply settings.
+  - The `autoiso` widget (also absent on the Z8) is now accessed in a try-except block so its
+    absence is silently ignored.
+  - Burst mode (`take_burst`) tries the `capturemode` widget first (older Nikon DSLRs) and falls
+    back to `stillcapturemode` with a numeric value (Z-series mirrorless cameras).
+  - `gp_widget_set_value` calls for exposure-program now pass a `str` value as required by the
+    gphoto2 Python binding (was incorrectly passing an `int`, causing a `TypeError`).
+- **macOS USB device contention (`[-53] Could not claim the USB device`)**:
+  - `get_free_space` and `get_space` now return the last successfully cached value when error -53
+    is received, instead of attempting a full camera reinitialisation (which always fails for the
+    same reason and produced cascading tracebacks).
+  - `get_battery_level` downgrades the -53 log message from WARNING to DEBUG, since the macOS
+    `ptpcamerad` daemon reclaiming the USB connection after a capture is normal and expected.
+  - `CameraOverview._gather_camera_info` reuses existing camera objects instead of opening fresh
+    USB connections on every sync, avoiding collisions with the connection held by `take_picture`.
+  - Updated TODO.md with permanent macOS solutions: setting "No application" in Image Capture
+    (recommended) or `sudo launchctl disable system/com.apple.ptpcamerad`.
 
 
 ## [1.3.0] - 2026-02-04
@@ -53,7 +117,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [1.1.0] - 2025-03-25
 
-Version 1.1.0 fixes some bugs, makes it possible to take pictures through a telescope and provides new scripting possibilities. Version of the partial solar eclipse of March 29, 2025.
+Version 1.1.0 fixes some bugs, makes it possible to take pictures through a telescope and provides new scripting possibilities. Version for the partial solar eclipse of March 29, 2025.
 
 ### Added
 - Take pictures when a camera is attached to a telescope

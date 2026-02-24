@@ -273,12 +273,37 @@ def __adapt_camera_settings(camera, camera_settings):
     context = gp.gp_context_new()
     target = camera._camera if hasattr(camera, '_camera') else camera
     config = gp.check_result(gp.gp_camera_get_config(target, context))
-    # Set ISO
+    
     vendor = getattr(camera, 'vendor', None)
+    
+    # Set camera to Manual mode first (required for full control of settings)
     if vendor == 'Nikon':
-        gp.gp_widget_set_value(gp.check_result(gp.gp_widget_get_child_by_name(config, 'autoiso')), str("Off"))
-        # set config
-        _set_gp_config(target, config, context)
+        try:
+            # Set exposure program to Manual (M = 1)
+            exp_program = gp.check_result(gp.gp_widget_get_child_by_name(config, 'expprogram'))
+            gp.gp_widget_set_value(exp_program, "1")  # 1 = Manual mode (must be string)
+            _set_gp_config(target, config, context)
+            logging.debug('Set Nikon camera to Manual mode')
+        except gphoto2.GPhoto2Error as e:
+            logging.warning('Could not set Nikon camera to Manual mode: %s', e)
+    elif vendor == 'Canon':
+        try:
+            # Set autoexposuremode to Manual
+            ae_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'autoexposuremodedial'))
+            gp.gp_widget_set_value(ae_mode, "Manual")
+            _set_gp_config(target, config, context)
+            logging.debug('Set Canon camera to Manual mode')
+        except gphoto2.GPhoto2Error as e:
+            logging.warning('Could not set Canon camera to Manual mode: %s', e)
+    
+    # Set ISO
+    if vendor == 'Nikon':
+        try:
+            gp.gp_widget_set_value(gp.check_result(gp.gp_widget_get_child_by_name(config, 'autoiso')), str("Off"))
+            # set config
+            _set_gp_config(target, config, context)
+        except gphoto2.GPhoto2Error as e:
+            logging.debug('Could not disable auto ISO: %s', e)
 
     gp.gp_widget_set_value(gp.check_result(gp.gp_widget_get_child_by_name(config, 'iso')), str(camera_settings.iso))
     # set config
@@ -339,7 +364,7 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         remote_release = gp.check_result(gp.gp_widget_get_child_by_name(config, 'eosremoterelease'))
         gp.gp_widget_set_value(remote_release, "Press Full")
         # set config
-        gp.gp_camera_set_config(target, config, context)
+        _set_gp_config(camera, config, context)
         time.sleep(duration)
 
         # Release the button
@@ -348,16 +373,32 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         # set config
         _set_gp_config(camera, config, context)
     elif getattr(camera, 'vendor', None) == 'Nikon':
-        # Push the button
-        capture_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
-        gp.gp_widget_set_value(capture_mode, "Burst")
-        # set config
-        _set_gp_config(camera, config, context)
+        # Set capture mode to burst/continuous
+        # Try different widget names (differs between DSLR and mirrorless models)
+        try:
+            # Try 'capturemode' first (older DSLRs)
+            capture_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
+            gp.gp_widget_set_value(capture_mode, "Burst")
+            _set_gp_config(camera, config, context)
+            logging.debug('Set capturemode to Burst')
+        except gphoto2.GPhoto2Error:
+            try:
+                # Try 'stillcapturemode' (newer mirrorless like Z8/Z9)
+                # Value 2 is typically Continuous Low, higher values for High Speed
+                capture_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'stillcapturemode'))
+                gp.gp_widget_set_value(capture_mode, 2)  # Continuous shooting mode
+                _set_gp_config(camera, config, context)
+                logging.debug('Set stillcapturemode to Continuous (2)')
+            except gphoto2.GPhoto2Error as e:
+                logging.warning('Could not set Nikon burst/continuous mode: %s', e)
 
-        burst_number = gp.check_result(gp.gp_widget_get_child_by_name(config, 'burstnumber'))
-        gp.gp_widget_set_value(burst_number, round(duration))
-        # set config
-        _set_gp_config(camera, config, context)
+        # Set burst number
+        try:
+            burst_number = gp.check_result(gp.gp_widget_get_child_by_name(config, 'burstnumber'))
+            gp.gp_widget_set_value(burst_number, round(duration))
+            _set_gp_config(camera, config, context)
+        except gphoto2.GPhoto2Error as e:
+            logging.warning('Could not set Nikon burst number: %s', e)
 
         try:
             camera.capture(gp.GP_CAPTURE_IMAGE, context)
@@ -540,11 +581,17 @@ def get_camera(camera_name: str):
         # set config
         gp.gp_camera_set_config(camera, config, context)
 
-        # find the drivemode and set to Continuous high speed
-        drive_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'drivemode'))
-        gp.gp_widget_set_value(drive_mode, "Continuous high speed")
-        # set config
-        gp.gp_camera_set_config(camera, config, context)
+        # Try to set the drivemode to Continuous high speed (for cameras that support it)
+        # Note: Not all cameras have this widget (e.g., Nikon Z-series mirrorless cameras)
+        try:
+            drive_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'drivemode'))
+            gp.gp_widget_set_value(drive_mode, "Continuous high speed")
+            # set config
+            gp.gp_camera_set_config(camera, config, context)
+            logging.debug('Set drivemode to Continuous high speed for %s', camera_name)
+        except gphoto2.GPhoto2Error as e:
+            # drivemode widget doesn't exist or value not supported - this is OK for many cameras
+            logging.debug('Could not set drivemode for %s (this is normal for some camera models): %s', camera_name, e)
     except gphoto2.GPhoto2Error as e:
         logging.exception('gphoto2 error while initializing camera %s: %s', camera_name, e)
         # continue and attempt to wrap camera object anyway
@@ -574,9 +621,24 @@ def get_free_space(camera: Camera) -> float:
     Returns: Free space on the card of the camera [GB]
     """
     try:
-        return round(camera.get_storageinfo()[0].freekbytes / 1024 / 1024, 1)
+        result = round(camera.get_storageinfo()[0].freekbytes / 1024 / 1024, 1)
+        try:
+            camera._cached_free_space = result  # cache for -53 fallback
+        except Exception:
+            pass
+        return result
     except gphoto2.GPhoto2Error as e:
-        # Try to reinitialise the camera once and retry
+        # Error -53 means the OS has reclaimed the USB device (common on macOS when
+        # ptpcamerad / Image Capture grabs the camera after gphoto2 releases it).
+        # There is no point retrying or reinitialising – both will fail the same way.
+        # Return the previously cached value if available, otherwise -1 as a sentinel.
+        if getattr(e, 'code', None) == -53:
+            cached = getattr(camera, '_cached_free_space', -1.0)
+            logging.debug(
+                'Camera %s USB reclaimed by OS (-53), returning cached free space %.1f GB',
+                getattr(camera, 'name', str(camera)), cached)
+            return cached
+        # For other errors, try to reinitialise the camera once and retry
         try:
             if hasattr(camera, 'name'):
                 logging.info('Reinitialising camera %s to retry storage query', camera.name)
@@ -594,13 +656,11 @@ def get_free_space(camera: Camera) -> float:
         except Exception:
             logging.exception('Reinitialisation attempt failed for %s', getattr(camera, 'name', str(camera)))
         # If recovery failed, propagate the original error so caller can handle it
-        # If operation is unsupported, try a lower-level gp call on the original camera before giving up
         try:
             ctx = gp.gp_context_new()
             stor = gp.check_result(gp.gp_camera_get_storageinfo(camera._camera if hasattr(camera, '_camera') else camera, ctx))
             return round(stor[0].freekbytes / 1024 / 1024, 1)
         except Exception:
-            # Raise a clearer CameraError including original gphoto message
             raise CameraError(f"Could not read storage info for {getattr(camera, 'name', camera)}: {e}") from e
     except Exception:
         # For virtual or non-gphoto cameras return a large default value
@@ -619,8 +679,21 @@ def get_space(camera: Camera) -> float:
     """
 
     try:
-        return round(camera.get_storageinfo()[0].capacitykbytes / 1024 / 1024, 1)
+        result = round(camera.get_storageinfo()[0].capacitykbytes / 1024 / 1024, 1)
+        try:
+            camera._cached_total_space = result  # cache for -53 fallback
+        except Exception:
+            pass
+        return result
     except gphoto2.GPhoto2Error as e:
+        # Error -53: OS reclaimed the USB device (macOS ptpcamerad / Image Capture).
+        # Return previously cached value if available.
+        if getattr(e, 'code', None) == -53:
+            cached = getattr(camera, '_cached_total_space', -1.0)
+            logging.debug(
+                'Camera %s USB reclaimed by OS (-53), returning cached total space %.1f GB',
+                getattr(camera, 'name', str(camera)), cached)
+            return cached
         logging.warning('gphoto2 error reading capacity for %s: %s', getattr(camera, 'name', str(camera)), e)
         # Try to reinitialise the camera once and retry
         try:
@@ -719,7 +792,11 @@ def get_battery_level(camera: Camera) -> str:
     try:
         return camera.get_config().get_child_by_name('batterylevel').get_value()
     except gphoto2.GPhoto2Error as e:
-        logging.warning('gphoto2 error reading battery level for %s: %s', getattr(camera, 'name', str(camera)), e)
+        if getattr(e, 'code', None) == -53:
+            # Camera is still busy (USB claimed) after a recent capture - this is normal
+            logging.debug('Camera %s busy (USB claimed), skipping battery read', getattr(camera, 'name', str(camera)))
+        else:
+            logging.warning('gphoto2 error reading battery level for %s: %s', getattr(camera, 'name', str(camera)), e)
         # Return unknown battery level to avoid crashing the UI
         return "Unknown"
     except Exception:

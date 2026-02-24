@@ -12,6 +12,7 @@
     - [Installation on macOS](#installation-on-macos)
     - [Installation on Ubuntu 24.04](#installation-on-ubuntu-2404)
     - [Installation on Windows 11](#installation-on-windows-11)
+  - [Upgrading Solar Eclipse Workbench](#upgrading-solar-eclipse-workbench)
   - [Running Solar Eclipse Workbench](#running-solar-eclipse-workbench)
     - [Command line parameters](#command-line-parameters)
     - [UI functionality](#ui-functionality)
@@ -24,6 +25,7 @@
       - [Interrupting scheduled jobs](#interrupting-scheduled-jobs)
       - [Datetime format](#datetime-format)
       - [Saving settings](#saving-settings)
+  - [Running the Configuration Wizard](#running-the-configuration-wizard)
   - [Script file format](#script-file-format)
     - [General remarks](#general-remarks)
     - [Commands](#commands)
@@ -178,6 +180,21 @@ lsusb
 sudo usermod -aG plugdev $USER
 ```
 
+## Upgrading Solar Eclipse Workbench
+
+To upgrade Solar Eclipse Workbench to the latest version, activate your Python environment and run:
+
+```bash
+source solareclipseworkbench/bin/activate
+pip install --upgrade solareclipseworkbench
+```
+
+After upgrading, verify the installed version with:
+
+```bash
+pip show solareclipseworkbench
+```
+
 ## Running Solar Eclipse Workbench
 
 - Start Solar Eclipse Workbench by executing the following commands:
@@ -313,9 +330,33 @@ The functionality of the toolbar buttons is as follows (from left to right):
 #### Saving settings
 
 - When pressing the "Save" icon, the location and eclipse date (if selected) will be stored in a settings file, together with the applied date and time format.
-- The standard settings framework of `PyQt6` (`QSettings`) will be used: it stores the settings as `SolarEclipseWorkbench.ini`.
-- Next time you open the UI (from the same location), this settings file will be loaded and the specified data will be made available in the UI.
+- The standard settings framework of `PyQt6` (`QSettings`) will be used: it stores the settings as `~/.SolarEclipseWorkbench.ini` (a hidden file in your home directory).
+- Next time you open the UI, this settings file will be loaded and the specified data will be made available in the UI.
 - In case command line arguments are used to open the UI, these take priority over the values from the settings file.
+
+## Running the Configuration Wizard
+
+The SEW Configuration Wizard (`sew_wizard`) is a graphical step-by-step tool that helps you create photography scripts for solar eclipse observations. It guides you through selecting an eclipse and location, configuring your camera and ISO settings, choosing phenomena to photograph, and optionally adding voice prompts.
+
+- After installation, start the wizard by running:
+
+```bash
+sew_wizard
+```
+
+- Alternatively, if you are using the development environment with Poetry:
+
+```bash
+poetry run sew_wizard
+```
+
+- Or run it directly from Python:
+
+```bash
+python -m solareclipseworkbench.wizard
+```
+
+For a detailed walkthrough of each wizard step, see the [Wizard Guide](docs/WIZARD_GUIDE.md).
 
 ## Script file format
 
@@ -329,6 +370,7 @@ The following cameras are tested:
 - Canon EOS 80D: 1 picture every two seconds
 - Canon EOS R: 1 picture every two seconds
 - Nikon DSC D3400: 1 picture every three seconds
+- Nikon Z8
 
 It is possible to take pictures in burst mode.  The speed is limited by the speed of the camera (and card).
 

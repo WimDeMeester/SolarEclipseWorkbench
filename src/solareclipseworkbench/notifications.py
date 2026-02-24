@@ -1,6 +1,10 @@
+import subprocess
+import sys
 from enum import Enum
 from pathlib import Path
-from playsound3 import playsound
+
+if sys.platform != "darwin":
+    from playsound3 import playsound
 
 SOUND_PATH = Path(__file__).parent.resolve() / "sound"
 
@@ -92,7 +96,11 @@ def voice_prompt(notification: str) -> None:
         - notification: Notification
     """
 
-    playsound(str(SOUND_PATH) + "/" + Notifications[notification.lstrip()].value)
+    sound_file = str(SOUND_PATH) + "/" + Notifications[notification.lstrip()].value
+    if sys.platform == "darwin":
+        subprocess.run(["afplay", sound_file], check=True)
+    else:
+        playsound(sound_file)
 
 
 def main():

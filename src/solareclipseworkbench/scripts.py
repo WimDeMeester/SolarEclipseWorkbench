@@ -1,43 +1,59 @@
 import io
+import csv
 import logging
 from datetime import datetime, timedelta
 
 def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_file) -> io.StringIO:
-    # Split line into different variables, separated by commas.  Only use the first 4 variables.
-    command = line.split(",")
+    # Use CSV parser to properly handle quoted fields with commas
+    try:
+        command_parts = next(csv.reader([line], skipinitialspace=True))
+    except (StopIteration, csv.Error):
+        logging.error(f"Could not parse command line: {line}")
+        return output_file
+    
     ref_moment = ref_moment.strip()
     sign = sign.strip()
     comment = ""
 
-    if command[0] == "TAKEPIC":
-        _, _, _, _, camera_name, exposure, aperture, iso, _, _, _, _, comment = line.split(",")
+    if command_parts[0] == "TAKEPIC":
+        camera_name, exposure, aperture, iso = command_parts[4:8]
+        comment = command_parts[12] if len(command_parts) > 12 else ""
         command = "take_picture"
-    elif command[0] == "take_picture":
-        _, _, _, _, camera_name, exposure, aperture, iso, comment = line.split(",")
+    elif command_parts[0] == "take_picture":
+        camera_name, exposure, aperture, iso = command_parts[4:8]
+        comment = command_parts[8] if len(command_parts) > 8 else ""
         command = "take_picture"
-    elif command[0] == "take_burst":
-        _, _, _, _, camera_name, exposure, aperture, iso, number_of_pictures, comment = line.split(",")
+    elif command_parts[0] == "take_burst":
+        camera_name, exposure, aperture, iso, number_of_pictures = command_parts[4:9]
+        comment = command_parts[9] if len(command_parts) > 9 else ""
         command = "take_burst"
-    elif command[0] == "TAKEBST":
-        _, _, _, _, camera_name, exposure, aperture, iso, number_of_pictures, _, _, _, comment = line.split(",")
+    elif command_parts[0] == "TAKEBST":
+        camera_name, exposure, aperture, iso, number_of_pictures = command_parts[4:9]
+        comment = command_parts[12] if len(command_parts) > 12 else ""
         command = "take_burst"
-    elif command[0] == "take_bracket":
-        _, _, _, _, camera_name, exposure, aperture, iso, bracket, comment = line.split(",")
+    elif command_parts[0] == "take_bracket":
+        camera_name, exposure, aperture, iso, bracket = command_parts[4:9]
+        comment = command_parts[9] if len(command_parts) > 9 else ""
         command = "take_bracket"
-    elif command[0] == "TAKEBKT":
-        _, _, _, _, camera_name, exposure, aperture, iso, _, _, _, _, comment = line.split(",")
+    elif command_parts[0] == "TAKEBKT":
+        camera_name, exposure, aperture, iso = command_parts[4:8]
+        comment = command_parts[12] if len(command_parts) > 12 else ""
+        bracket = ""  # Will need to be set elsewhere
         command = "take_bracket"
-    elif command[0] == "sync_cameras":
-        _, _, _, _, comment = line.split(",")
+    elif command_parts[0] == "sync_cameras":
+        comment = command_parts[4] if len(command_parts) > 4 else ""
         command = "sync_cameras"
-    elif command[0] == "voice_prompt":
-        _, _, _, _, sound_file, comment = line.split(",")
+    elif command_parts[0] == "voice_prompt":
+        sound_file = command_parts[4] if len(command_parts) > 4 else ""
+        comment = command_parts[5] if len(command_parts) > 5 else ""
         command = "voice_prompt"
-    elif command[0] == "command":
-        _, _, _, _, to_execute, comment = line.split(",")
+    elif command_parts[0] == "command":
+        to_execute = command_parts[4] if len(command_parts) > 4 else ""
+        comment = command_parts[5] if len(command_parts) > 5 else ""
         command = "command"
-    elif command[0] == "PLAY":
-        _, _, _, _, sound_file, _, _, _, _, _, _, _, comment = line.split(",")
+    elif command_parts[0] == "PLAY":
+        sound_file = command_parts[4] if len(command_parts) > 4 else ""
+        comment = command_parts[12] if len(command_parts) > 12 else ""
         sound_file, _ = sound_file.upper().split('.')
         # Handle all sound files.
         if sound_file == "FILTERS_OFF":
@@ -49,6 +65,9 @@ def convert_command(line, ref_moment, sign, time_delta, extra_comment, output_fi
         else:
             sound_file = ref_moment + "_IN_" + sound_file
         command = "voice_prompt"
+    else:
+        # Unknown command
+        return output_file
 
     # Remove the double quote from the comment
     comment = comment.replace('"', '')
@@ -132,7 +151,12 @@ def convert_script(filename, reference_moments) -> io.StringIO:
         if not line.startswith('#') and not len(line) == 0: 
             # FOR loops in the Solar Eclipse Maestro scripts
             if line.startswith('FOR'):
-                _, for_type, direction, interval, number_of_steps = line.split(",")
+                for_parts = next(csv.reader([line], skipinitialspace=True))
+                for_type = for_parts[1] if len(for_parts) > 1 else ""
+                direction = for_parts[2] if len(for_parts) > 2 else "1"
+                interval = for_parts[3] if len(for_parts) > 3 else "0"
+                number_of_steps = for_parts[4] if len(for_parts) > 4 else "1"
+                
                 if for_type == '(INTERVALOMETER)':
                     line = input_file.readline()
                     while not line.startswith('ENDFOR'):
@@ -151,7 +175,16 @@ def convert_script(filename, reference_moments) -> io.StringIO:
 
                         iteration = 1
                         for i in range(start, stop, step):
-                            _, ref_moment, before_after, delta, camera_name, exposure, aperture, iso, _, _, _, _, comment = line.split(",")
+                            line_parts = next(csv.reader([line], skipinitialspace=True))
+                            ref_moment = line_parts[1] if len(line_parts) > 1 else ""
+                            before_after = line_parts[2] if len(line_parts) > 2 else "+"
+                            delta = line_parts[3] if len(line_parts) > 3 else "0:00:00.0"
+                            camera_name = line_parts[4] if len(line_parts) > 4 else ""
+                            exposure = line_parts[5] if len(line_parts) > 5 else ""
+                            aperture = line_parts[6] if len(line_parts) > 6 else ""
+                            iso = line_parts[7] if len(line_parts) > 7 else ""
+                            comment = line_parts[12] if len(line_parts) > 12 else ""
+                            
                             # Some of the time deltas in the Solar Eclipse Maestro scripts are MM:SS.s, some HH:MM:SS.s
                             if delta.count(":") == 1:
                                 delta_datetime = datetime.strptime(delta, "%M:%S.%f")
@@ -180,9 +213,13 @@ def convert_script(filename, reference_moments) -> io.StringIO:
 
                         line = input_file.readline()
             elif line.startswith('for'):
-                _, start, stop, interval, start_delta, stop_delta = line.split(",")
-                # Convert interval to float
-                interval = int(interval)
+                for_parts = next(csv.reader([line], skipinitialspace=True))
+                start = for_parts[1] if len(for_parts) > 1 else ""
+                stop = for_parts[2] if len(for_parts) > 2 else ""
+                interval = int(for_parts[3]) if len(for_parts) > 3 else 10
+                start_delta = for_parts[4] if len(for_parts) > 4 else "0"
+                stop_delta = for_parts[5] if len(for_parts) > 5 else "0"
+                
                 timings = reference_moments
 
                 # start should be C1, C2, C3, C4, MAX, or END
@@ -198,7 +235,13 @@ def convert_script(filename, reference_moments) -> io.StringIO:
                         iteration = 1
                         current_time = start_time
                         while current_time < stop_time:
-                            command, ref_moment, before_after, delta, _ = line.split(",", 4)
+                            # Use CSV parsing
+                            line_parts = next(csv.reader([line], skipinitialspace=True))
+                            command = line_parts[0] if len(line_parts) > 0 else ""
+                            ref_moment = line_parts[1] if len(line_parts) > 1 else ""
+                            before_after = line_parts[2] if len(line_parts) > 2 else "+"
+                            delta = line_parts[3] if len(line_parts) > 3 else "0"
+                            
                             # Get the total time delta in seconds.
                             delta = (current_time - timings[start].time_utc).total_seconds()
                             if delta < 0:
@@ -221,12 +264,19 @@ def convert_script(filename, reference_moments) -> io.StringIO:
                     exit()
             else:
                 try:
-                    _, ref_moment, sign, delta, _ = line.split(",", 4)
-                    time_delta = _get_delta_datetime(delta)
+                    # Use CSV parsing to handle quoted fields with commas
+                    line_parts = next(csv.reader([line], skipinitialspace=True))
+                    if len(line_parts) >= 4:
+                        ref_moment = line_parts[1]
+                        sign = line_parts[2]
+                        delta = line_parts[3]
+                        time_delta = _get_delta_datetime(delta)
 
-                    output_file = convert_command(line, ref_moment, sign, time_delta, "", output_file)
-                except ValueError:
-                    logging.info("Skipping line in script: " + line.strip())
+                        output_file = convert_command(line, ref_moment, sign, time_delta, "", output_file)
+                    else:
+                        logging.info("Skipping line in script (not enough fields): " + line.strip())
+                except (ValueError, csv.Error, StopIteration) as e:
+                    logging.info(f"Skipping line in script: {line.strip()} (error: {e})")
 
     return output_file
 

@@ -36,7 +36,9 @@ import threading
 from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get_free_space, get_space, \
     get_shooting_mode, get_focus_mode, set_time, CameraSettings
 from solareclipseworkbench.observer import Observer, Observable
+from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
+from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
 
 ICON_PATH = Path(__file__).parent.resolve() / "img"
 
@@ -706,7 +708,7 @@ class SolarEclipseView(QMainWindow, Observable):
         """
 
         if eclipse_type == "Partial" or eclipse_type == "Annular":
-            self.eclipse_type.setText(eclipse_type + f" eclipse (magnitude: {round(magnitude, 2)})")
+            self.eclipse_type.setText(eclipse_type + f" eclipse ({round(magnitude, 2)})")
         elif eclipse_type == "No eclipse":
             self.eclipse_type.setText(eclipse_type)
         else:
@@ -1080,7 +1082,7 @@ class SolarEclipseController(Observer):
         automatically.
         """
 
-        self.view.settings = QSettings("./SolarEclipseWorkbench.ini", QSettings.Format.IniFormat)
+        self.view.settings = QSettings(str(Path.home() / ".SolarEclipseWorkbench.ini"), QSettings.Format.IniFormat)
 
         # Date & time format
         # TODO Requires Python 3.7
@@ -1179,10 +1181,11 @@ class LocationPopup(QWidget, Observable):
             - Latitude [degrees];
             - Altitude [meters].
 
-        When pressing the "Plot" button, this location will be displayed on a world map (as a red dot). When pressing
-        the "OK" button, the given controller will be notified about this.
+        The window also provides a saved-locations drop-down and an address-search bar (when geopy is installed).  When
+        pressing the "Plot" button, the location will be displayed on a world map (as a red dot).  When pressing the
+        "OK" button, the controller will be notified.
 
-        If the location had already been set before, this will be shown in the text boxes.
+        If the location had already been set before, the coordinate fields will be pre-filled.
 
         Args:
             - observer: SolarEclipseController that needs to be notified about the selection of a new location.
@@ -1197,44 +1200,18 @@ class LocationPopup(QWidget, Observable):
 
         layout = QVBoxLayout()
 
-        grid_layout = QGridLayout()
-        grid_layout.addWidget(QLabel("Longitude [°]"), 0, 0)
-        self.longitude = QLineEdit()
-        longitude_validator = QDoubleValidator()
-        longitude_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
-        longitude_validator.setRange(-180, 180, 5)
-        self.longitude.setValidator(longitude_validator)
-        self.longitude.setToolTip("Positive values: East of Greenwich meridian; "
-                                  "Negative values: West of Greenwich meridian")
-        if model.longitude:
-            self.longitude.setText(str(model.longitude))
-        grid_layout.addWidget(self.longitude, 0, 1)
-
-        grid_layout.addWidget(QLabel("Latitude [°]"), 1, 0)
-        self.latitude = QLineEdit()
-        latitude_validator = QDoubleValidator()
-        latitude_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
-        latitude_validator.setRange(-90, 90, 5)
-        self.latitude.setValidator(latitude_validator)
-        self.latitude.setToolTip("Positive values: Northern hemisphere; Negative values: Southern hemisphere")
-        if model.latitude:
-            self.latitude.setText(str(model.latitude))
-        grid_layout.addWidget(self.latitude, 1, 1)
-
-        grid_layout.addWidget(QLabel("Altitude [m]"), 2, 0)
-        self.altitude = QLineEdit()
-        altitude_validator = QDoubleValidator()
-        altitude_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
-        self.altitude.setValidator(altitude_validator)
-        grid_layout.addWidget(self.altitude, 2, 1)
-        if model.altitude:
-            self.altitude.setText(str(model.altitude))
-        layout.addLayout(grid_layout)
-
-        plot_button = QPushButton("Plot")
-        plot_button.clicked.connect(self.plot_location)
-        plot_button.setFixedWidth(100)
-        layout.addWidget(plot_button)
+        # Shared location widget: saved-locations drop-down + address search + coordinate fields.
+        config_manager = ConfigManager()
+        self.location_widget = LocationWidget(config_manager)
+        # Only fall back to model coordinates when no saved location was restored
+        # by the widget (i.e. the combo is still on "Custom"). If a saved location
+        # was restored, its own coordinates should be shown, not the ones from the
+        # .SolarEclipseWorkbench.ini file.
+        if model.longitude is not None and self.location_widget.location_combo.currentText() == "Custom":
+            self.location_widget.set_coordinates(
+                model.longitude, model.latitude, model.altitude
+            )
+        layout.addWidget(self.location_widget)
 
         self.location_plot = LocationPlot()
         layout.addWidget(self.location_plot)
@@ -1246,17 +1223,56 @@ class LocationPopup(QWidget, Observable):
 
         self.setLayout(layout)
 
+        # Auto-plot: debounce coordinate changes so the map refreshes 300 ms
+        # after the user stops typing or after a saved/geocoded location is applied.
+        self._plot_timer = QTimer(self)
+        self._plot_timer.setSingleShot(True)
+        self._plot_timer.setInterval(300)
+        self._plot_timer.timeout.connect(self.plot_location)
+
+        self.location_widget.longitude_edit.textChanged.connect(self._schedule_auto_plot)
+        self.location_widget.latitude_edit.textChanged.connect(self._schedule_auto_plot)
+
+        # Plot whatever coordinates are currently in the fields — covers both the
+        # case where the model already had a location and the case where LocationWidget
+        # restored the last-used saved location during its own initialisation.
+        self.plot_location()
+
+    # ------------------------------------------------------------------
+    # Backward-compatible properties so the controller can still do
+    #   changed_object.longitude.text() / .latitude.text() / .altitude.text()
+    # ------------------------------------------------------------------
+
+    @property
+    def longitude(self):
+        """Return the longitude QLineEdit from the embedded LocationWidget."""
+        return self.location_widget.longitude_edit
+
+    @property
+    def latitude(self):
+        """Return the latitude QLineEdit from the embedded LocationWidget."""
+        return self.location_widget.latitude_edit
+
+    @property
+    def altitude(self):
+        """Return the altitude QLineEdit from the embedded LocationWidget."""
+        return self.location_widget.altitude_edit
+
+    def _schedule_auto_plot(self):
+        """Restart the debounce timer whenever a coordinate field changes."""
+        self._plot_timer.start()
+
     def plot_location(self):
-        """ Plot the selected location on the world map.
+        """Plot the selected location on the world map.
 
-        Check:
-            - longitude specified
-            - latitude specified
+        Silently ignored when longitude or latitude are empty or not yet valid numbers.
         """
-
-        if self.longitude.text() and self.latitude.text():
-            self.location_plot.plot_location(
-                longitude=float(self.longitude.text()), latitude=float(self.latitude.text()))
+        try:
+            lon = float(self.longitude.text())
+            lat = float(self.latitude.text())
+        except ValueError:
+            return
+        self.location_plot.plot_location(longitude=lon, latitude=lat)
 
     def accept_location(self):
         """ Notify the observer about the selection of a new location and close the pop-up window.
@@ -1640,7 +1656,14 @@ class CameraOverviewTableModel(QAbstractTableModel):
         try:
             is_sim = getattr(self.view, 'is_simulator', False) and getattr(self.view, 'virtual_camera_enabled', False)
             vc_fps = getattr(self.view, 'virtual_camera_fps', 1)
-            camera_dict = get_camera_dict(is_simulator=is_sim)
+            # Reuse existing camera objects if available to avoid opening a new USB
+            # connection while a previous connection (e.g. from take_picture) is still held.
+            existing_map = getattr(self, 'camera_overview_dict', None)
+            if existing_map and all(v is not None for v in existing_map.values()):
+                camera_dict = existing_map
+                logging.debug('CameraOverview: reusing %d existing camera object(s)', len(camera_dict))
+            else:
+                camera_dict = get_camera_dict(is_simulator=is_sim)
 
             data = []
             for camera_name, camera in camera_dict.items():
@@ -1978,6 +2001,7 @@ def main():
 
     # args[1:1] = ["-stylesheet", str(styles_location)]
     app = QApplication(list(sys.argv))
+    apply_system_color_scheme(app)
     app.setWindowIcon(QIcon(str(ICON_PATH / "logo-small.svg")))
     app.setApplicationName("Solar Eclipse Workbench")
 
