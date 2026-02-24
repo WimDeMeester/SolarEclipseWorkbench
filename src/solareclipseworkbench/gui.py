@@ -36,6 +36,7 @@ import threading
 from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get_free_space, get_space, \
     get_shooting_mode, get_focus_mode, set_time, CameraSettings
 from solareclipseworkbench.observer import Observer, Observable
+from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
 
@@ -2000,6 +2001,7 @@ def main():
 
     # args[1:1] = ["-stylesheet", str(styles_location)]
     app = QApplication(list(sys.argv))
+    apply_system_color_scheme(app)
     app.setWindowIcon(QIcon(str(ICON_PATH / "logo-small.svg")))
     app.setApplicationName("Solar Eclipse Workbench")
 

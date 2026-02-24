@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QMessageBox,
 )
+from solareclipseworkbench.qt_utils import dark_lineedit_style, apply_dark_to_lineedit
 
 try:
     from geopy.geocoders import Nominatim
@@ -341,6 +342,7 @@ class LocationWidget(QWidget):
             self.address_search_edit.setPlaceholderText(
                 "Enter city, street, or landmark"
             )
+            apply_dark_to_lineedit(self.address_search_edit)
             self.address_search_edit.returnPressed.connect(self._search_address)
             search_row.addWidget(self.address_search_edit, 1)
 
@@ -369,12 +371,14 @@ class LocationWidget(QWidget):
         coord_grid.addWidget(QLabel("Location Name:"), 0, 0)
         self.location_name_edit = QLineEdit()
         self.location_name_edit.setPlaceholderText("Name this location to save it")
+        apply_dark_to_lineedit(self.location_name_edit)
         coord_grid.addWidget(self.location_name_edit, 0, 1)
 
         coord_grid.addWidget(QLabel("Longitude [°]:"), 1, 0)
         self.longitude_edit = QLineEdit()
         self.longitude_edit.setPlaceholderText("-180 to 180 (E: +, W: −)")
         self.longitude_edit.setValidator(QDoubleValidator(-180.0, 180.0, 5))
+        apply_dark_to_lineedit(self.longitude_edit)
         self.longitude_edit.setToolTip(
             "Positive values: East of Greenwich meridian; "
             "Negative values: West of Greenwich meridian"
@@ -385,6 +389,7 @@ class LocationWidget(QWidget):
         self.latitude_edit = QLineEdit()
         self.latitude_edit.setPlaceholderText("-90 to 90 (N: +, S: −)")
         self.latitude_edit.setValidator(QDoubleValidator(-90.0, 90.0, 5))
+        apply_dark_to_lineedit(self.latitude_edit)
         self.latitude_edit.setToolTip(
             "Positive values: Northern hemisphere; Negative values: Southern hemisphere"
         )
@@ -394,6 +399,7 @@ class LocationWidget(QWidget):
         self.altitude_edit = QLineEdit()
         self.altitude_edit.setPlaceholderText("Altitude above sea level")
         self.altitude_edit.setValidator(QDoubleValidator(-500.0, 9000.0, 1))
+        apply_dark_to_lineedit(self.altitude_edit)
         coord_grid.addWidget(self.altitude_edit, 3, 1)
 
         self.save_location_btn = QPushButton("Save Location")

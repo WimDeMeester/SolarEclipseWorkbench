@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from solareclipseworkbench.location_ui import ConfigManager, GeocodingWorker, GEOPY_AVAILABLE, LocationWidget
+from solareclipseworkbench.qt_utils import apply_system_color_scheme, _is_dark_mode_preferred, _build_dark_palette, dark_lineedit_style, apply_dark_to_lineedit
 
 # Import eclipse-specific modules
 from astropy.time import Time
@@ -161,6 +162,16 @@ class EclipseConfigPage(QWizardPage):
     def initializePage(self):
         """Called when the page is shown - ensure eclipse data is loaded."""
         super().initializePage()
+        # Re-apply dark stylesheets: QWizard.initializePage() overwrites any
+        # stylesheet set on registered field widgets during construction.
+        _s = dark_lineedit_style()
+        if _s:
+            lw = self.location_widget
+            for edit in (lw.longitude_edit, lw.latitude_edit, lw.altitude_edit,
+                         lw.location_name_edit):
+                edit.setStyleSheet(_s)
+            if lw.address_search_edit is not None:
+                lw.address_search_edit.setStyleSheet(_s)
         # Ensure the first eclipse is selected and fields are populated
         if self.eclipse_combo.count() > 0 and self.eclipse_combo.currentIndex() >= 0:
             # Trigger the change handler to populate hidden fields
@@ -301,6 +312,7 @@ class EquipmentPage(QWizardPage):
         camera_name_layout.addWidget(QLabel("Camera Name:"))
         self.camera_name_edit = QLineEdit()
         self.camera_name_edit.setPlaceholderText("e.g., Canon EOS 80D, Nikon D850")
+        apply_dark_to_lineedit(self.camera_name_edit)
         # Connect textChanged to update page completeness
         self.camera_name_edit.textChanged.connect(lambda: self.completeChanged.emit())
         camera_name_layout.addWidget(self.camera_name_edit)
@@ -558,6 +570,8 @@ class EquipmentPage(QWizardPage):
     def initializePage(self):
         """Called when the page is shown - ensure camera data is loaded."""
         super().initializePage()
+        # Re-apply dark stylesheet: QWizard overwrites it on registered fields.
+        self.camera_name_edit.setStyleSheet(dark_lineedit_style())
         # If a camera is selected, trigger the selection handler to ensure fields are populated
         current_camera = self.camera_select_combo.currentText()
         if current_camera and current_camera != "New Camera...":
@@ -794,6 +808,7 @@ class SummaryPage(QWizardPage):
         save_layout.addWidget(QLabel("Save to:"))
         self.save_path_edit = QLineEdit()
         self.save_path_edit.setPlaceholderText("Click Browse to select save location...")
+        apply_dark_to_lineedit(self.save_path_edit)
         save_layout.addWidget(self.save_path_edit)
         
         self.browse_button = QPushButton("Browse...")
@@ -808,6 +823,8 @@ class SummaryPage(QWizardPage):
     
     def initializePage(self):
         """Called when page is displayed - update summary and preview."""
+        # Re-apply dark stylesheet: QWizard overwrites it on registered fields.
+        self.save_path_edit.setStyleSheet(dark_lineedit_style())
         wizard = self.wizard()
         if not wizard:
             return
@@ -1791,63 +1808,101 @@ class SEWConfigWizard(QWizard):
         """Apply modern styling to the wizard."""
         # Use Fusion style for modern cross-platform look
         QApplication.setStyle("Fusion")
-        
-        # Custom stylesheet
-        stylesheet = """
-        QWizard {
-            background-color: #f5f5f5;
-        }
-        QWizardPage {
-            background-color: white;
-        }
-        QGroupBox {
+        # setStyle() resets the application palette to the style's default
+        # (light). Re-apply the dark palette immediately so that all palette-
+        # driven painting (e.g. QLineEdit Base role) stays dark.
+        if _is_dark_mode_preferred():
+            QApplication.instance().setPalette(_build_dark_palette())
+
+        if _is_dark_mode_preferred():
+            window_bg    = "#1e1e1e"
+            page_bg      = "#2b2b2b"
+            input_bg     = "#3c3f41"
+            input_fg     = "#eeeeee"
+            input_border = "#555555"
+            label_fg     = "#eeeeee"
+            disabled_fg  = "#888888"
+        else:
+            window_bg    = "#f5f5f5"
+            page_bg      = "white"
+            input_bg     = "white"
+            input_fg     = "#000000"
+            input_border = "#bdc3c7"
+            label_fg     = "#000000"
+            disabled_fg  = "#888888"
+
+        # Custom stylesheet (f-string: literal braces must be doubled)
+        stylesheet = f"""
+        QWizard {{
+            background-color: {window_bg};
+        }}
+        QWizardPage {{
+            background-color: {page_bg};
+        }}
+        QLabel {{
+            color: {label_fg};
+        }}
+        QGroupBox {{
             font-weight: bold;
             border: 2px solid #3498db;
             border-radius: 5px;
             margin-top: 10px;
             padding-top: 10px;
-        }
-        QGroupBox::title {
+            color: {label_fg};
+        }}
+        QGroupBox::title {{
             subcontrol-origin: margin;
             left: 10px;
             padding: 0 5px;
-        }
-        QPushButton {
+        }}
+        QPushButton {{
             background-color: #3498db;
             color: white;
             border: none;
             padding: 5px 15px;
             border-radius: 3px;
             min-width: 80px;
-        }
-        QPushButton:hover {
+        }}
+        QPushButton:hover {{
             background-color: #2980b9;
-        }
-        QPushButton:pressed {
+        }}
+        QPushButton:pressed {{
             background-color: #21618c;
-        }
-        QPushButton:disabled {
-            background-color: #bdc3c7;
-        }
-        QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+        }}
+        QPushButton:disabled {{
+            background-color: #555555;
+            color: {disabled_fg};
+        }}
+        QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+            background-color: {input_bg};
+            color: {input_fg};
             padding: 5px;
-            border: 1px solid #bdc3c7;
+            border: 1px solid {input_border};
             border-radius: 3px;
-        }
-        QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+        }}
+        QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
             border: 2px solid #3498db;
-        }
-        QTextEdit {
-            border: 1px solid #bdc3c7;
+        }}
+        QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
+            color: {disabled_fg};
+        }}
+        QTextEdit {{
+            background-color: {input_bg};
+            color: {input_fg};
+            border: 1px solid {input_border};
             border-radius: 3px;
-        }
-        QCheckBox, QRadioButton {
+        }}
+        QCheckBox, QRadioButton {{
+            color: {label_fg};
             spacing: 5px;
-        }
-        QCheckBox::indicator, QRadioButton::indicator {
+        }}
+        QCheckBox:disabled, QRadioButton:disabled {{
+            color: {disabled_fg};
+        }}
+        QCheckBox::indicator, QRadioButton::indicator {{
             width: 18px;
             height: 18px;
-        }
+        }}
         """
         self.setStyleSheet(stylesheet)
     
@@ -1868,7 +1923,8 @@ def main():
     """Main entry point for the wizard application."""
     app = QApplication(sys.argv)
     app.setApplicationName("Solar Eclipse Workbench Configuration Wizard")
-    
+    apply_system_color_scheme(app)
+
     wizard = SEWConfigWizard()
     wizard.show()
     
