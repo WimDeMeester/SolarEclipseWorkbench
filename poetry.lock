@@ -96,14 +96,14 @@ files = [
 
 [[package]]
 name = "certifi"
-version = "2026.1.4"
+version = "2026.2.25"
 description = "Python package for providing Mozilla's CA Bundle."
 optional = false
 python-versions = ">=3.7"
 groups = ["main"]
 files = [
-    {file = "certifi-2026.1.4-py3-none-any.whl", hash = "sha256:9943707519e4add1115f44c2bc244f782c0249876bf51b6599fee1ffbedd685c"},
-    {file = "certifi-2026.1.4.tar.gz", hash = "sha256:ac726dd470482006e014ad384921ed6438c457018f4b3d204aea4281258b2120"},
+    {file = "certifi-2026.2.25-py3-none-any.whl", hash = "sha256:027692e4402ad994f1c42e52a4997a9763c646b73e4096e4d5d6db8af1d6f0fa"},
+    {file = "certifi-2026.2.25.tar.gz", hash = "sha256:e887ab5cee78ea814d3472169153c2d12cd43b14bd03329a39a9c6e2e80bfba7"},
 ]
 
 [[package]]
@@ -731,18 +731,6 @@ files = [
     {file = "gphoto2-2.6.3-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cd4c86524fe7f2779585022d300c974a2330d367c88a76e18c81e3cb053c0242"},
     {file = "gphoto2-2.6.3-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:d02e86d28a7b31257b8c56428577bfd70795c1170a20ba506831ac296a64e698"},
     {file = "gphoto2-2.6.3.tar.gz", hash = "sha256:829194ed341b01472778a00d5186412f1442de79f37c9bb1d16a0e5af6b8d24b"},
-]
-
-[[package]]
-name = "gpsdclient"
-version = "1.3.2"
-description = "A simple gpsd client."
-optional = false
-python-versions = ">=3.6,<4.0"
-groups = ["main"]
-files = [
-    {file = "gpsdclient-1.3.2-py3-none-any.whl", hash = "sha256:35a7f781ae69a04f2d80278a6ae94564e524efaf061646c0a9bbb6ba4ffbcac8"},
-    {file = "gpsdclient-1.3.2.tar.gz", hash = "sha256:70a496550a9747dff5e0e50b3c95a6e1dcab9d842860997e95120767e2060a7a"},
 ]
 
 [[package]]
@@ -1455,18 +1443,6 @@ files = [
 windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
-name = "pynmea2"
-version = "1.19.0"
-description = "Python library for the NMEA 0183 protcol"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "pynmea2-1.19.0-py3-none-any.whl", hash = "sha256:5138558b4fb5daa587b2c17de99eb43df0297039de1c98010c996624abfb00eb"},
-    {file = "pynmea2-1.19.0.tar.gz", hash = "sha256:1daa79b93279f887d1c235e5cc5c79e32644564138ce46989ab0f4a2fc970d7c"},
-]
-
-[[package]]
 name = "pyparsing"
 version = "3.3.2"
 description = "pyparsing - Classes and methods to define and execute parsing grammars"
@@ -2078,4 +2054,4 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "c217b99484bb2f78fa7201fb28d74c38ddab1b68a2be6b63febc3af25cbe371f"
+content-hash = "7dc1c27d1623364e41898e74f6ea5f61d8fc39df6b5d7c65633b0ea0a878dd6c"
