@@ -200,20 +200,19 @@ pip show solareclipseworkbench
 - Start Solar Eclipse Workbench by executing the following commands:
 
 ```bash
-source solareclipseworkbench/bin/activate
-python -m solareclipseworkbench
+sew
 ```
 
 - You can add a parameters to set the needed parameters for the eclipse.  Some examples:
 
 ```bash
 # On macos, start the commands with sudo
-sudo python -m solareclipseworkbench -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
-sudo python -m solareclipseworkbench
+sudo sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
+sudo sew
 
 # In Linux or using WSL on Windows, start the command without sudo
-python solareclipseworkbench -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
-python solareclipseworkbench
+sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
+sew
 ```
 
 - There is a problem with `gphoto2`.  On macOS, Solar Eclipse Workbench needs to be started with sudo rights to be able to connect to the cameras.  In Linux (or Windows using wsl), sudo should not be used.
@@ -252,6 +251,7 @@ The functionality of the toolbar buttons is as follows (from left to right):
 - If these data were already inserted before somehow (manually, via command line arguments, or by loading a settings file), these values will appear there (you can modify them as you see fit).
 - When pressing the "Plot" button, the specified location (longitude, latitude) will be marked with a red dot on the world map.  Note that this plot is not updated automatically when you change the values.
 - When pressing the "OK" button, the data are accepted and will be filled out in the top section of the UI.
+- **GPS from phone**: Click the **📱 Get GPS from Phone** button to capture your exact coordinates from your smartphone's GPS — no app required. A local HTTPS server starts on your laptop; open the displayed URL in your phone's browser and tap **Get My Location**. Works over WiFi or with your phone acting as a hotspot (useful at remote eclipse sites with no WiFi). See [docs/GPS_PHONE.md](docs/GPS_PHONE.md) for step-by-step instructions.
 
 ![location pop-up](src/solareclipseworkbench/img/location-popup.png)
 
@@ -357,6 +357,7 @@ python -m solareclipseworkbench.wizard
 ```
 
 For a detailed walkthrough of each wizard step, see the [Wizard Guide](docs/WIZARD_GUIDE.md).
+For capturing your GPS coordinates from your smartphone (works over WiFi or phone hotspot — no internet required at the eclipse site), see [docs/GPS_PHONE.md](docs/GPS_PHONE.md).
 
 ## Script file format
 
