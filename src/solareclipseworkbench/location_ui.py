@@ -15,11 +15,12 @@ import requests
 from pathlib import Path
 from typing import Optional, Dict, List
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QMessageBox,
+    QDialog, QDialogButtonBox,
 )
 from solareclipseworkbench.qt_utils import dark_lineedit_style, apply_dark_to_lineedit
 
@@ -243,6 +244,45 @@ class GeocodingWorker(QThread):
 
 
 # ---------------------------------------------------------------------------
+# ElevationWorker
+# ---------------------------------------------------------------------------
+
+class ElevationWorker(QThread):
+    """Background thread that fetches elevation from Open-Elevation.
+
+    Used as a fallback when the phone/browser does not report altitude.
+
+    Signals:
+        finished(float): emitted on success with the elevation in metres.
+        error(str): emitted on failure with a human-readable message.
+    """
+
+    finished = pyqtSignal(float)
+    error = pyqtSignal(str)
+
+    def __init__(self, latitude: float, longitude: float):
+        super().__init__()
+        self.latitude = latitude
+        self.longitude = longitude
+
+    def run(self):
+        try:
+            response = requests.get(
+                "https://api.open-elevation.com/api/v1/lookup",
+                params={"locations": f"{self.latitude},{self.longitude}"},
+                timeout=10,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("results"):
+                    self.finished.emit(float(data["results"][0]["elevation"]))
+                    return
+            self.error.emit(f"Open-Elevation returned status {response.status_code}")
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+# ---------------------------------------------------------------------------
 # LocationWidget
 # ---------------------------------------------------------------------------
 
@@ -279,6 +319,11 @@ class LocationWidget(QWidget):
         super().__init__(parent)
         self._config_manager = config_manager
         self._geocoding_worker: Optional[GeocodingWorker] = None
+        self._gps_worker = None
+        self._gps_dialog: Optional[QDialog] = None
+        self._gps_status_label: Optional[QLabel] = None
+        self._gps_url_label: Optional[QLabel] = None
+        self._elevation_worker: Optional[ElevationWorker] = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -409,6 +454,16 @@ class LocationWidget(QWidget):
 
         layout.addLayout(coord_grid)
 
+        # --- GPS from phone button ---
+        self.gps_btn = QPushButton("\U0001f4f1  Get GPS from Phone")
+        self.gps_btn.setToolTip(
+            "Start a local HTTPS server and open the URL on your phone's browser "
+            "to capture your GPS coordinates automatically.\n"
+            "Works over WiFi or phone hotspot (no internet required)."
+        )
+        self.gps_btn.clicked.connect(self._start_gps_capture)
+        layout.addWidget(self.gps_btn)
+
         # Connect combo *after* creating all sub-widgets.
         self.location_combo.currentTextChanged.connect(self._on_location_changed)
 
@@ -430,6 +485,149 @@ class LocationWidget(QWidget):
         self.latitude_edit.setEnabled(editable)
         self.altitude_edit.setEnabled(editable)
         self.save_location_btn.setEnabled(editable)
+
+    # ------------------------------------------------------------------
+    # Phone GPS capture
+    # ------------------------------------------------------------------
+
+    def _start_gps_capture(self) -> None:
+        """Start the phone GPS web server and show a dialog with the URL."""
+        try:
+            from solareclipseworkbench.phone_gps import get_phone_gps_worker_class
+            PhoneGpsWorker = get_phone_gps_worker_class()
+        except Exception as exc:
+            QMessageBox.critical(self, "GPS Error",
+                                 f"Could not load GPS server module:\n{exc}")
+            return
+
+        # Build the URL dialog
+        self._gps_dialog = QDialog(self)
+        self._gps_dialog.setWindowTitle("Get GPS from Phone")
+        self._gps_dialog.setMinimumWidth(520)
+        self._gps_dialog.setMinimumHeight(300)
+        dlg_layout = QVBoxLayout(self._gps_dialog)
+        dlg_layout.setContentsMargins(16, 16, 16, 16)
+        dlg_layout.setSpacing(10)
+
+        self._gps_status_label = QLabel("\u23f3 Starting server\u2026")
+        self._gps_status_label.setWordWrap(True)
+        dlg_layout.addWidget(self._gps_status_label)
+
+        self._gps_url_label = QLabel("")
+        self._gps_url_label.setWordWrap(True)
+        self._gps_url_label.setTextInteractionFlags(
+            self._gps_url_label.textInteractionFlags()
+            | Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._gps_url_label.setMinimumHeight(80)
+        dlg_layout.addWidget(self._gps_url_label)
+
+        note = QLabel(
+            "<small><i>"
+            "No WiFi at your eclipse site? Enable your phone\u2019s hotspot,<br>"
+            "connect this laptop to it, then open the URL on the phone\u2019s<br>"
+            "own browser. See <b>docs/GPS_PHONE.md</b> for details."
+            "</i></small>"
+        )
+        note.setWordWrap(True)
+        dlg_layout.addWidget(note)
+
+        dlg_layout.addStretch()
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        btn_box.rejected.connect(self._cancel_gps_capture)
+        dlg_layout.addWidget(btn_box)
+
+        # Start the worker
+        self._gps_worker = PhoneGpsWorker(port=8765, parent=self)
+        self._gps_worker.server_started.connect(self._on_gps_server_started)
+        self._gps_worker.location_received.connect(self._on_gps_location_received)
+        self._gps_worker.error.connect(self._on_gps_error)
+        self._gps_worker.start()
+
+        self.gps_btn.setEnabled(False)
+        self._gps_dialog.exec()
+
+    def _on_gps_server_started(self, lan_url: str, local_url: str) -> None:
+        """Update the dialog once the server is ready."""
+        if self._gps_status_label:
+            self._gps_status_label.setText(
+                "\u2197\ufe0e Open this URL on your phone\u2019s browser "
+                "(same WiFi or phone hotspot):"
+            )
+        if self._gps_url_label:
+            self._gps_url_label.setText(
+                f"<p style='font-size:14pt; font-weight:bold; margin:4px 0'>{lan_url}</p>"
+                f"<p style='color:gray; margin:2px 0'><small>Or from this laptop: {local_url}</small></p>"
+                "<p style='color:gray; margin:2px 0'><small>"
+                "Certificate warning: tap \u2018Advanced\u2019 \u2192 \u2018Proceed\u2019 (Chrome) "
+                "/ \u2018Visit this website\u2019 (Safari)"
+                "</small></p>"
+            )
+
+    def _on_gps_location_received(self, data: dict) -> None:
+        """Fill coordinate fields with the received GPS fix and close the dialog."""
+        # Switch combo to Custom so fields become editable
+        self.location_combo.setCurrentText("Custom")
+        self._set_fields_editable(True)
+
+        lat = data.get("lat")
+        lon = data.get("lon")
+        alt = data.get("alt")
+
+        if lat is not None:
+            self.latitude_edit.setText(f"{lat:.6f}")
+        if lon is not None:
+            self.longitude_edit.setText(f"{lon:.6f}")
+        if alt is not None:
+            self.altitude_edit.setText(f"{alt:.1f}")
+        elif lat is not None and lon is not None:
+            # Browser did not supply altitude — fetch it from Open-Elevation
+            self.altitude_edit.setPlaceholderText("Fetching elevation…")
+            self._elevation_worker = ElevationWorker(lat, lon)
+            self._elevation_worker.finished.connect(self._on_elevation_received)
+            self._elevation_worker.error.connect(self._on_elevation_error)
+            self._elevation_worker.start()
+
+        if self._gps_dialog:
+            self._gps_dialog.accept()
+            self._gps_dialog = None
+        self.gps_btn.setEnabled(True)
+        if self._gps_worker:
+            self._gps_worker.stop_server()
+            self._gps_worker = None
+
+    def _on_elevation_received(self, elevation: float) -> None:
+        """Fill the altitude field after a successful Open-Elevation lookup."""
+        self.altitude_edit.setText(f"{elevation:.1f}")
+        self.altitude_edit.setPlaceholderText("Altitude above sea level")
+        self._elevation_worker = None
+
+    def _on_elevation_error(self, message: str) -> None:
+        """Clear the placeholder text when the elevation lookup fails."""
+        self.altitude_edit.setPlaceholderText("Altitude above sea level")
+        self.altitude_edit.setText("0.0")
+        print(f"Elevation lookup failed: {message}")
+        self._elevation_worker = None
+
+    def _on_gps_error(self, message: str) -> None:
+        """Show an error and close the GPS dialog."""
+        if self._gps_dialog:
+            self._gps_dialog.reject()
+            self._gps_dialog = None
+        self.gps_btn.setEnabled(True)
+        QMessageBox.critical(self, "GPS Error", f"GPS server error:\n{message}")
+
+    def _cancel_gps_capture(self) -> None:
+        """Called when the user cancels the GPS dialog."""
+        if self._gps_worker:
+            self._gps_worker.stop_server()
+            self._gps_worker.quit()
+            self._gps_worker = None
+        if self._gps_dialog:
+            self._gps_dialog.reject()
+            self._gps_dialog = None
+        self.gps_btn.setEnabled(True)
 
     # ------------------------------------------------------------------
     # Slots
