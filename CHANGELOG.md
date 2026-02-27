@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.5.0] - 2026-02-26
+
+### Added
+- **GPS Location from Smartphone (`📱 Get GPS from Phone`)**: Capture your exact observation
+  coordinates directly from your phone's GPS — no app installation required.
+  - New `phone_gps` module (`src/solareclipseworkbench/phone_gps.py`) with a `WebGpsServer` class
+    that starts a self-signed HTTPS server on the laptop.
+  - Phone opens the URL in any browser (Chrome, Safari, Firefox); the browser Geolocation API
+    reads the GPS and submits coordinates via a plain HTML form (immune to SSL/CORS blocking).
+  - **📱 Get GPS from Phone** button added to `LocationWidget`, used by both the wizard and the
+    main GUI location popup. When clicked, a dialog shows the server URL and waits for the phone
+    to submit; latitude, longitude and altitude are filled in automatically on receipt.
+  - Automatic **altitude fallback**: if the browser does not supply altitude (common on Android
+    with WiFi/cell positioning), the Open-Elevation API is queried in the background using the
+    received lat/lon, consistent with the existing geocoding workflow.
+  - Works over **WiFi or phone hotspot** — no internet connection is needed at the observation
+    site. Step-by-step hotspot instructions for Android and iPhone are in `docs/GPS_PHONE.md`.
+  - New standalone script `scripts/get_gps_location.py` with `--web` (recommended) and
+    `--smartphone HOST` modes, replacing the old Garmin-specific script.
+- **GPS Phone documentation** (`docs/GPS_PHONE.md`): Full guide covering WiFi, phone-as-hotspot
+  (Android + iPhone), accepting the self-signed certificate warning in Chrome/Safari/Firefox,
+  manual coordinate entry as a fallback, and a troubleshooting table.
+
 ## [1.4.0] - 2026-02-23
 
 ### Added
