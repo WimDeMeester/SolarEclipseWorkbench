@@ -87,6 +87,12 @@ sudo chmod -x /usr/lib/gvfs/gvfs-gphoto2-volume-monitor
 sudo chmod -x /usr/lib/gvfs/gvfsd-gphoto2
 ```
 
+- Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
+
+```bash
+sudo apt install libgdal-dev gdal-bin
+```
+
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
