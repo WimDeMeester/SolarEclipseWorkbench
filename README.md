@@ -53,11 +53,11 @@ python -m venv solareclipseworkbench
 source solareclipseworkbench/bin/activate
 ```
 
-- For modern Apple Mac computers (using Apple Silicon processors), install [homebrew](https://brew.sh/). Add your homebrew/bin directory to your PATH. Then install gphoto2 using homebrew:
+- For modern Apple Mac computers (using Apple Silicon processors), install [homebrew](https://brew.sh/). Add your homebrew/bin directory to your PATH. Then install gphoto2 and GDAL (required by geopandas) using homebrew:
 
 ```bash
 export PATH=<location_of_homebrew_installation>/bin:$PATH
-brew install gphoto2 pkg-config
+brew install gphoto2 pkg-config gdal
 ```
 
 - Install the Solar Eclipse Workbench:
@@ -479,6 +479,13 @@ If something goes wrong, an error message will be logged in the log file `/tmp/s
 
 When you want to help with the development of Solar Eclipse Workbench, some extra installation is needed.
 ### Installation on macOS
+
+- For modern Apple Mac computers (using Apple Silicon processors), install [homebrew](https://brew.sh/). Add your homebrew/bin directory to your PATH. Then install gphoto2 and GDAL (required by geopandas) using homebrew:
+
+```bash
+export PATH=<location_of_homebrew_installation>/bin:$PATH
+brew install gphoto2 pkg-config gdal
+```
 
 - Install poetry by executing the following line in the terminal
 
