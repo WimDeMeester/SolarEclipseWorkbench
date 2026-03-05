@@ -1774,9 +1774,8 @@ class JobsTableModel(QAbstractTableModel, Observable):
         self.controller = controller
         self.time_format = self.controller.view.time_format
 
-        tf = TimezoneFinder()
-        timezone = pytz.timezone(
-            tf.timezone_at(lng=self.controller.model.longitude, lat=self.controller.model.latitude))
+        from solareclipseworkbench.reference_moments import _find_timezone
+        timezone = pytz.timezone(_find_timezone(self.controller.model.longitude, self.controller.model.latitude))
 
         now_utc = datetime.datetime.now().astimezone(tz=datetime.timezone.utc)
         data = []

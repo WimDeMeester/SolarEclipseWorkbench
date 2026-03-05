@@ -169,6 +169,20 @@ class ConfigManager:
         """Return the most-recently used location name, or None."""
         return self.config["last_used"].get("location")
 
+    def delete_location(self, name: str) -> bool:
+        """Remove a saved location by name. Returns True if it was found and deleted."""
+        original_len = len(self.config["locations"])
+        self.config["locations"] = [
+            loc for loc in self.config["locations"] if loc["name"] != name
+        ]
+        if len(self.config["locations"]) < original_len:
+            # Clear last_used if we just deleted it
+            if self.config["last_used"].get("location") == name:
+                self.config["last_used"]["location"] = None
+            self.save_config()
+            return True
+        return False
+
 
 # ---------------------------------------------------------------------------
 # GeocodingWorker
@@ -452,6 +466,12 @@ class LocationWidget(QWidget):
         self.save_location_btn.setToolTip("Save this location for future use")
         coord_grid.addWidget(self.save_location_btn, 4, 1)
 
+        self.delete_location_btn = QPushButton("Delete Location")
+        self.delete_location_btn.clicked.connect(self._delete_location)
+        self.delete_location_btn.setToolTip("Delete the currently selected saved location")
+        self.delete_location_btn.setEnabled(False)
+        coord_grid.addWidget(self.delete_location_btn, 5, 1)
+
         layout.addLayout(coord_grid)
 
         # --- GPS from phone button ---
@@ -485,6 +505,7 @@ class LocationWidget(QWidget):
         self.latitude_edit.setEnabled(editable)
         self.altitude_edit.setEnabled(editable)
         self.save_location_btn.setEnabled(editable)
+        self.delete_location_btn.setEnabled(not editable)
 
     # ------------------------------------------------------------------
     # Phone GPS capture
@@ -644,6 +665,7 @@ class LocationWidget(QWidget):
                 self.longitude_edit.setText(str(saved["longitude"]))
                 self.latitude_edit.setText(str(saved["latitude"]))
                 self.altitude_edit.setText(str(saved["altitude"]))
+                self._config_manager.set_last_used_location(actual_name)
         else:
             # "Custom" – let the user type freely.
             self._set_fields_editable(True)
@@ -651,6 +673,33 @@ class LocationWidget(QWidget):
             self.longitude_edit.clear()
             self.latitude_edit.clear()
             self.altitude_edit.clear()
+
+    def _delete_location(self) -> None:
+        """Delete the currently selected saved location after confirmation."""
+        location_name = self.location_name_edit.text().strip()
+        if not location_name:
+            return
+
+        reply = QMessageBox.question(
+            self, "Delete Location",
+            f"Are you sure you want to delete the saved location '{location_name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._config_manager.delete_location(location_name)
+
+        combo_text = f"{location_name} (Saved)"
+        idx = self.location_combo.findText(combo_text)
+        if idx >= 0:
+            self.location_combo.blockSignals(True)
+            self.location_combo.removeItem(idx)
+            self.location_combo.blockSignals(False)
+
+        # Switch back to Custom and clear fields
+        self.location_combo.setCurrentText("Custom")
 
     def _save_location(self) -> None:
         """Validate fields and persist the current location."""
