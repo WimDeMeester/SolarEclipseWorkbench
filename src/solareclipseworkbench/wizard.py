@@ -8,6 +8,7 @@ import math
 import json
 import time
 import requests
+from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List
@@ -1778,7 +1779,11 @@ class SEWConfigWizard(QWizard):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        self.setWindowTitle("Solar Eclipse Workbench Configuration Wizard")
+        try:
+            _version = version("solareclipseworkbench")
+        except PackageNotFoundError:
+            _version = "unknown"
+        self.setWindowTitle(f"Solar Eclipse Workbench Configuration Wizard v{_version}")
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setOption(QWizard.WizardOption.HaveHelpButton, False)
         self.setMinimumSize(900, 850)

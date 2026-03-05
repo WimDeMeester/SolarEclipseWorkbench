@@ -10,6 +10,7 @@ import logging
 import os.path
 import sys
 import time
+from importlib.metadata import version, PackageNotFoundError
 from enum import Enum
 from pathlib import Path
 from typing import Union
@@ -272,7 +273,11 @@ class SolarEclipseView(QMainWindow, Observable):
         self.is_simulator = is_simulator
 
         self.setGeometry(300, 300, 1500, 1000)
-        self.setWindowTitle("Solar Eclipse Workbench")
+        try:
+            _version = version("solareclipseworkbench")
+        except PackageNotFoundError:
+            _version = "unknown"
+        self.setWindowTitle(f"Solar Eclipse Workbench v{_version}")
 
         self.date_format = list(DATE_FORMATS.keys())[0]
         self.time_format = list(TIME_FORMATS.keys())[0]
