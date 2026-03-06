@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.5.1] - 2026-03-05
+
+### Added
+- **Delete Saved Locations**: A "Delete Location" button has been added to `LocationWidget` (used
+  by both the main GUI location popup and the wizard). When a saved location is selected from the
+  drop-down, the button becomes active; clicking it shows a confirmation dialog and, on
+  confirmation, removes the location from `~/.sew_wizard_config.json` and from the drop-down.
+  A `delete_location()` method was added to `ConfigManager` to support this.
+
+### Fixed
+- **Nikon burst mode not reset after `take_burst`**: After a `take_burst` command completed, the
+  Nikon camera's capture mode (`capturemode` / `stillcapturemode`) and `burstnumber` were left in
+  burst/continuous state. All subsequent `take_picture` commands therefore fired bursts instead of
+  single frames. `take_burst` now resets the camera back to single-frame mode (and `burstnumber`
+  to 1) immediately after the burst capture. As a second layer of defence, `take_picture` also
+  explicitly enforces single-frame mode on Nikon cameras before each capture.
+- **Timezone detection for sea/ocean locations**: Observing locations over water (e.g. in the
+  Mediterranean Sea) were assigned `Etc/GMT` (UTC) because `TimezoneFinder.timezone_at()` only
+  covers land polygons. The new `_find_timezone()` helper in `reference_moments.py` now uses
+  `timezone_at_land()` first; when that returns `None` (sea location), it scans surrounding
+  points at increasing step sizes (0.5°–5°) until the nearest land timezone is found. This
+  ensures that, for example, a location at 39.924°N, 1.4271°E is correctly assigned
+  `Europe/Madrid` instead of UTC. The same fix is applied to the job-scheduling table in the
+  GUI (`gui.py`).
+
 ## [1.5.0] - 2026-02-26
 
 ### Added

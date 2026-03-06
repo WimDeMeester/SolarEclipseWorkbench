@@ -44,6 +44,28 @@ class ReferenceMomentInfo:
         self.altitude = altitude
 
 
+def _find_timezone(longitude: float, latitude: float) -> str:
+    """Return the best timezone name for the given coordinates.
+
+    For land locations, timezone_at_land() gives a direct result.
+    For sea/ocean locations it returns None, so nearby land points are
+    scanned in expanding steps until a land timezone is found.
+    Falls back to 'UTC' only if no land timezone can be determined.
+    """
+    tf = TimezoneFinder()
+    tz_name = tf.timezone_at_land(lng=longitude, lat=latitude)
+    if tz_name is None:
+        for step in [0.5, 1.0, 2.0, 3.0, 5.0]:
+            for dlat in [-step, 0, step]:
+                for dlng in [-step, 0, step]:
+                    if dlat == 0 and dlng == 0:
+                        continue
+                    tz_name = tf.timezone_at_land(lng=longitude + dlng, lat=latitude + dlat)
+                    if tz_name:
+                        return tz_name
+    return tz_name or 'UTC'
+
+
 def calculate_reference_moments(longitude: float, latitude: float, altitude: float, time: Time) -> (dict, int, str):
     """ Calculate the reference moments of the solar eclipse and return as a dictionary.
 
@@ -66,8 +88,7 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
 
     Returns: Dictionary with the reference moments of the solar eclipse, as datetime objects.
     """
-    tf = TimezoneFinder()
-    timezone = pytz.timezone(tf.timezone_at(lng=longitude, lat=latitude))
+    timezone = pytz.timezone(_find_timezone(longitude, latitude))
 
     location = EarthLocation(lat=latitude * u.deg, lon=longitude * u.deg, height=altitude * u.m)
 
