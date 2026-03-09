@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.6.0] - 2026-03-09
+
+### Added
+- **`take_hdr` command**: New HDR sequencing command for eclipse totality photography.
+  Uses `gp_camera_trigger_capture` instead of the blocking `gp_camera_capture` so shots are
+  fired without waiting for each file to be written to the card, maximising throughput.
+  The shutter speed choices are queried directly from the connected camera body at runtime
+  (via the `shutterspeed` widget choices list), ensuring the ramp sequence always stays
+  within the speeds the body actually supports — no hardcoded table. A symmetric exposure
+  sequence is generated: `start_speed → (N stops slower) → start_speed` (2N+1 total shots).
+  Canon and Nikon are both supported; Canon USB event queues are drained after the sequence
+  to prevent stalls on subsequent operations. Also includes a `VirtualCamera` fallback for
+  simulator mode. The command is fully wired into the script parser (`scripts.py`),
+  scheduler (`utils.py`), and `__init__.py` exports.
+
+  Script syntax: `take_hdr, MAX, -, 0:00:10.0, Canon EOS R, 1/2000, 5.6, 100, 14, "HDR at mid-totality"`
+
+  New internal helpers added to `camera.py`:
+  - `_parse_shutter_speed_seconds()` — parses gphoto2 speed strings to floats.
+  - `_get_shutter_speed_choices()` — queries the camera's actual supported speeds, sorted
+    fastest→slowest; falls back to a built-in table if the widget is unavailable.
+  - `_drain_camera_events()` — consumes pending USB events after trigger_capture sequences.
+- **Wizard: optional HDR burst at maximum eclipse**: The *Phenomena* page now includes an
+  "HDR burst at maximum eclipse" checkbox. When enabled, a `take_hdr` command is inserted at
+  MAX − 10 s in the generated script, using the inner-corona exposure as the fastest speed and
+  the number of stops chosen via the accompanying spin-box (default: 7, range 2–16).
+- **Delete Saved Cameras**: A "Delete Camera" button has been added to the *Equipment* page of
+  the wizard, next to the camera drop-down. The button is enabled only when a saved camera is
+  selected. Clicking it shows a confirmation dialog and, on confirmation, removes the camera from
+  `~/.sew_wizard_config.json` and from the drop-down, then resets the page to "New Camera...".
+  A `delete_camera()` method was added to `ConfigManager` to support this.
+
+### Changed
+- **`take_picture` now uses `trigger_capture` instead of `capture_image`**: The shutter is
+  fired with `gp_camera_trigger_capture`, which returns immediately without blocking on the
+  file being written to the memory card. Pending USB events (CaptureComplete / ObjectAdded)
+  are drained with `_drain_camera_events()` afterwards. A fallback to `GP_CAPTURE_IMAGE` is
+  retained for cameras whose driver does not support `trigger_capture`.
+- **`take_picture` camera settings applied in one USB round-trip**: `__adapt_camera_settings`
+  previously issued a separate `gp_camera_set_config` call (plus a 100 ms sleep) for each of
+  ISO, aperture, and shutter speed. ISO and shutter speed are now mutated in memory on the
+  shared config tree and pushed to the camera in a single round-trip with no forced sleep,
+  reducing per-shot overhead by ~300 ms. Aperture is kept in its own isolated round-trip so
+  that a failure on a telescope or fixed-aperture lens never silently rolls back the ISO and
+  shutter speed that were already applied.
+- **Wizard corona inter-shot buffer reduced from 2 s to 1 s**: The gap added after each corona
+  shot in the wizard's script generator was halved. Because `take_picture` no longer blocks on
+  the file being written to the card (via `trigger_capture`), a 1 s buffer is sufficient padding
+  for USB overhead, allowing more corona shots to be scheduled within the same totality window.
+
 ## [1.5.1] - 2026-03-05
 
 ### Added

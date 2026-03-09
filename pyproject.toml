@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solareclipseworkbench"
-version = "1.5.1"
+version = "1.6.0"
 description = "Tools to photograph solar eclipses"
 authors = ["Sara Regibo <sararegibo@gmail.com>", "Wim De Meester <deepskywim@gmail.com"]
 license = "GPL-3.0-or-later"

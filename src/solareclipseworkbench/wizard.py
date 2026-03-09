@@ -299,6 +299,13 @@ class EquipmentPage(QWizardPage):
             self.camera_select_combo.addItem(camera["name"])
         
         camera_select_h_layout.addWidget(self.camera_select_combo)
+
+        self.delete_camera_btn = QPushButton("Delete Camera")
+        self.delete_camera_btn.clicked.connect(self._delete_camera)
+        self.delete_camera_btn.setToolTip("Permanently delete this camera from saved configurations")
+        self.delete_camera_btn.setEnabled(False)  # Disabled until a saved camera is selected
+        camera_select_h_layout.addWidget(self.delete_camera_btn)
+
         camera_select_layout.addLayout(camera_select_h_layout)
         
         camera_select_group.setLayout(camera_select_layout)
@@ -498,6 +505,9 @@ class EquipmentPage(QWizardPage):
     
     def _on_camera_selected(self, camera_name):
         """Load selected camera configuration."""
+        is_saved = camera_name != "New Camera..."
+        self.delete_camera_btn.setEnabled(is_saved)
+
         if camera_name == "New Camera...":
             # Clear all fields
             self.camera_name_edit.clear()
@@ -562,6 +572,29 @@ class EquipmentPage(QWizardPage):
         # Make camera name read-only after saving (not disabled, so validation works)
         self.camera_name_edit.setReadOnly(True)
         self.camera_name_edit.setStyleSheet("QLineEdit:read-only { background-color: #f0f0f0; }")
+
+    def _delete_camera(self):
+        """Delete the currently selected camera from saved configurations."""
+        camera_name = self.camera_select_combo.currentText()
+        if camera_name == "New Camera...":
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Delete Camera",
+            f"Are you sure you want to delete '{camera_name}'?\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        if self.config_manager.delete_camera(camera_name):
+            index = self.camera_select_combo.findText(camera_name)
+            if index >= 0:
+                self.camera_select_combo.removeItem(index)
+            # Reset to "New Camera..."
+            self.camera_select_combo.setCurrentIndex(0)
     
     def _on_sync_enabled_changed(self, state):
         """Enable/disable camera sync interval selection."""
@@ -643,10 +676,30 @@ class PhenomenaPage(QWizardPage):
         phenomena_layout.addWidget(self.earthshine_check)
         
         # Corona
-        self.corona_check = QCheckBox("Solar corona (during totality)")
+        self.corona_check = QCheckBox("Solar corona series (inner/outer corona, auto-scheduled throughout totality)")
         self.corona_check.setChecked(True)
         phenomena_layout.addWidget(self.corona_check)
-        
+
+        # HDR burst at maximum eclipse
+        self.hdr_check = QCheckBox("HDR burst at maximum eclipse (take_hdr)")
+        self.hdr_check.setChecked(False)
+        self.hdr_check.stateChanged.connect(self._on_hdr_changed)
+        phenomena_layout.addWidget(self.hdr_check)
+
+        hdr_stops_widget = QWidget()
+        hdr_stops_layout = QHBoxLayout()
+        hdr_stops_layout.setContentsMargins(20, 0, 0, 0)
+        hdr_stops_layout.addWidget(QLabel("Number of stops to ramp:"))
+        self.hdr_stops_spin = QSpinBox()
+        self.hdr_stops_spin.setRange(2, 16)
+        self.hdr_stops_spin.setValue(7)
+        self.hdr_stops_spin.setSuffix(" stops")
+        self.hdr_stops_spin.setEnabled(False)
+        hdr_stops_layout.addWidget(self.hdr_stops_spin)
+        hdr_stops_layout.addStretch()
+        hdr_stops_widget.setLayout(hdr_stops_layout)
+        phenomena_layout.addWidget(hdr_stops_widget)
+
         phenomena_group.setLayout(phenomena_layout)
         layout.addWidget(phenomena_group)
         
@@ -761,6 +814,8 @@ class PhenomenaPage(QWizardPage):
         self.registerField("filter_manual", self.filter_manual_spin, "value")
         self.registerField("voice_enabled", self.voice_enabled_check)
         self.registerField("voice_basic", self.voice_basic_radio)
+        self.registerField("hdr_burst", self.hdr_check)
+        self.registerField("hdr_stops", self.hdr_stops_spin, "value")
     
     def _on_filter_changed(self, text):
         """Enable/disable manual entry based on filter selection."""
@@ -771,6 +826,11 @@ class PhenomenaPage(QWizardPage):
         enabled = state == Qt.CheckState.Checked.value
         self.voice_basic_radio.setEnabled(enabled)
         self.voice_extended_radio.setEnabled(enabled)
+
+    def _on_hdr_changed(self, state):
+        """Enable/disable HDR stops selection."""
+        enabled = state == Qt.CheckState.Checked.value
+        self.hdr_stops_spin.setEnabled(enabled)
 
 
 class SummaryPage(QWizardPage):
@@ -1514,6 +1574,18 @@ class SummaryPage(QWizardPage):
                                 (30.0, 30.0 + earthshine_exposure + 2.0),  # C2+30s shot
                                 (totality_duration - 30.0, totality_duration - 30.0 + earthshine_exposure + 2.0)  # C3-30s shot
                             ]
+
+                        # Calculate HDR burst exclusion window if HDR is enabled (fired at MAX-10s)
+                        hdr_times = []
+                        if wizard.field('hdr_burst'):
+                            hdr_stops_val = wizard.field('hdr_stops')
+                            hdr_start = totality_duration / 2 - 10.0  # MAX is mid-totality
+                            # Estimated execution time: ~0.5 s per trigger_capture + 3 s overhead
+                            hdr_duration = (2 * hdr_stops_val + 1) * 0.5 + 3.0
+                            hdr_times = [(hdr_start, hdr_start + hdr_duration)]
+
+                        # Merge all blocked windows and sort by start time for conflict detection
+                        blocked_windows = sorted(earthshine_times + hdr_times)
                         
                         # Generate shots from C2+10s to C3-10s, tracking cumulative time to avoid overlaps
                         start_offset = 10
@@ -1545,19 +1617,21 @@ class SummaryPage(QWizardPage):
                                 shutter, iso, ap = exposure_tuple
                                 
                                 corona_exposure = parse_shutter_speed(shutter)
-                                shot_end_time = current_time + corona_exposure + 2.0  # +2s buffer
+                                shot_end_time = current_time + corona_exposure + 1.0  # +1s buffer
                                 
                                 # Check if this shot would exceed totality
                                 if shot_end_time > totality_duration - end_buffer:
                                     break
                                 
-                                # Check if this corona shot conflicts with any earthshine shot
+                                # Check if this corona shot conflicts with any blocked window
+                                # (earthshine shots or HDR burst)
                                 conflicts = False
-                                if earthshine_times:
-                                    for es_start, es_end in earthshine_times:
-                                        # Conflict if intervals overlap
-                                        if not (shot_end_time <= es_start or current_time >= es_end):
+                                conflict_end = None
+                                if blocked_windows:
+                                    for bw_start, bw_end in blocked_windows:
+                                        if not (shot_end_time <= bw_start or current_time >= bw_end):
                                             conflicts = True
+                                            conflict_end = bw_end
                                             break
                                 
                                 # If no conflict, add the shot
@@ -1577,13 +1651,10 @@ class SummaryPage(QWizardPage):
                                     # Move to next available time slot (after current shot completes)
                                     current_time = shot_end_time
                                 else:
-                                    # Skip to after the earthshine shot
-                                    for es_start, es_end in earthshine_times:
-                                        if current_time < es_end and es_end < totality_duration - end_buffer:
-                                            current_time = es_end
-                                            break
+                                    # Skip past the conflicting window
+                                    if conflict_end is not None and conflict_end < totality_duration - end_buffer:
+                                        current_time = conflict_end
                                     else:
-                                        # No earthshine conflict, just move forward slightly
                                         current_time += 2.0
                                 
                                 pattern_index += 1
@@ -1698,6 +1769,15 @@ class SummaryPage(QWizardPage):
                     lines.append("# Earthshine skipped - could not verify timing")
                     lines.append("")
             
+            # HDR burst at maximum eclipse
+            if wizard.field('hdr_burst'):
+                hdr_stops = wizard.field('hdr_stops')
+                hdr_start_speed = get_shutter('corona_inner_0.2R', '1/500')
+                lines.append("# HDR burst at maximum eclipse")
+                lines.append(f"# Fires {2 * hdr_stops + 1} shots ({hdr_stops} stops down and back from {hdr_start_speed})")
+                lines.append(f'take_hdr, MAX, -, 0:00:10.0, {camera_name}, {hdr_start_speed}, {aperture}, {preferred_iso}, {hdr_stops}, "HDR at maximum eclipse"')
+                lines.append("")
+
             # C3 - Diamond ring and Baily's beads
             if wizard.field('diamond') or wizard.field('bailys'):
                 lines.append("# Diamond ring and Baily's beads (C3)")

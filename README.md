@@ -373,11 +373,12 @@ Test your script before using it during a total solar eclipse!  Some cameras can
 
 The following cameras are tested:
 
-- Canon EOS 1000D: 1 picture every two seconds
-- Canon EOS 80D: 1 picture every two seconds
-- Canon EOS R: 1 picture every two seconds
-- Nikon DSC D3400: 1 picture every three seconds
+- Canon EOS 1000D
+- Canon EOS 80D
+- Canon EOS R
+- Nikon DSC D3400
 - Nikon Z8
+- Nikon Z6iii
 
 It is possible to take pictures in burst mode.  The speed is limited by the speed of the camera (and card).
 
@@ -410,6 +411,14 @@ This command will take a picture 1 minutes and 2 seconds before first contact (C
 - **take_bracket**   -  Set the aperture, shutter speed and ISO of the camera and take a bracket of 5 pictures with the given steps.  This method only works in Canon cameras.  Make sure to have 5 steps enabled for bracketing.  Options for the steps are: +/- 1/3, +/- 2/3, +/- 1, +/- 1 1/3, +/- 1 2/3, +/- 2, +/- 2 1/3, +/- 2 2/3, +/- 3
 
 ```take_bracket, C1, +, 0:00:08.0, Canon EOS 80D, 1/2000, 5.6, 400, "+/- 1 2/3", "Bracket test"```
+
+- **take_hdr** - Take an HDR sequence by ramping the shutter speed from a starting (fastest) speed down by the given number of full stops and back up again, while keeping aperture and ISO fixed.  Uses `gp_camera_trigger_capture` for maximum speed so successive shots are fired without waiting for each file to be written to the card.  The shutter speed choices available on the connected camera are queried at runtime, so the sequence always stays within the actual speeds the body supports.  Works on Canon EOS and Nikon cameras.  Total shots fired: 2 × stops + 1 (the slowest exposure appears once at the midpoint).
+
+  The sequence for `stops=4` starting at `1/2000` would be: `1/2000 → 1/1000 → 1/500 → 1/250 → 1/125 → 1/250 → 1/500 → 1/1000 → 1/2000` (9 shots).
+
+```take_hdr, MAX, -, 0:00:10.0, Canon EOS R, 1/2000, 5.6, 100, 14, "HDR at mid-totality"```
+
+  Arguments: camera name, starting shutter speed (fastest in the sequence), aperture, ISO, number of stops to ramp down.
 
 - **voice_prompt** - Play a sound file.
 
@@ -464,7 +473,7 @@ endfor
 
 ## Shortcomings
 
-- In normal mode, only one picture every two seconds can be made.
+- In normal mode, only one picture per second can be made.
 - The computer you are using will probably fall asleep during the solar eclipse.  You can prevent this on macOS using [caffeine](https://www.caffeine-app.net/).  On Windows, you can use the Windows [powertoys](https://awake.den.dev/). 
 
 ## Converting scripts from Solar Eclipse Maestro

@@ -183,6 +183,20 @@ class ConfigManager:
             return True
         return False
 
+    def delete_camera(self, name: str) -> bool:
+        """Remove a saved camera by name. Returns True if it was found and deleted."""
+        original_len = len(self.config["cameras"])
+        self.config["cameras"] = [
+            cam for cam in self.config["cameras"] if cam["name"] != name
+        ]
+        if len(self.config["cameras"]) < original_len:
+            # Clear last_used if we just deleted it
+            if self.config["last_used"].get("camera") == name:
+                self.config["last_used"]["camera"] = None
+            self.save_config()
+            return True
+        return False
+
 
 # ---------------------------------------------------------------------------
 # GeocodingWorker
