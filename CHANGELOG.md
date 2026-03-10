@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.6.0] - 2026-03-09
+## [1.6.0] - 2026-03-10
 
 ### Added
 - **`take_hdr` command**: New HDR sequencing command for eclipse totality photography.
@@ -35,6 +35,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   selected. Clicking it shows a confirmation dialog and, on confirmation, removes the camera from
   `~/.sew_wizard_config.json` and from the drop-down, then resets the page to "New Camera...".
   A `delete_camera()` method was added to `ConfigManager` to support this.
+- **Dual-camera support for same model, and multi-config per camera**: Two cameras of the
+  same brand and model (e.g. two Canon EOS 80D bodies) can now be used simultaneously.
+  Additionally, the same physical camera body can be saved under **multiple** configuration
+  names (e.g. `"Canon EOS 80D (telescope)"` and `"Canon EOS 80D (lens)"`) so that
+  different scripts can target the right optical setup without any code change.
+
+  A serial-number → aliases mapping is stored in `~/.sew_wizard_config.json` under
+  `camera_aliases`.  At runtime, each detected camera's serial number is read via the
+  gphoto2 `serialnumber` widget and looked up in this map; if a match is found the camera
+  is exposed under **all** its registered alias names, so whichever alias the current script
+  uses will be found.  If no alias map exists the original behaviour (model name as key) is
+  preserved unchanged.
+
+  New internal helpers in `camera.py`:
+  - `get_camera_by_port(model_name, port, alias)` — opens a camera at a specific USB port and
+    optionally assigns it an alias name, avoiding the conflict that arises when two bodies of
+    the same model are auto-detected.
+  - `get_serial_number(camera)` — reads the `serialnumber` gphoto2 widget; returns `None` if
+    the camera does not expose a serial number.
+  - `get_camera_dict()` now accepts an optional `alias_map` dict and applies the mapping when
+    provided.
+
+  New methods on `ConfigManager` (`location_ui.py`):
+  - `get_camera_aliases()`, `set_camera_alias()`, `delete_camera_alias()`,
+    `get_serial_for_alias()`.
+
+  **Wizard UX** (`wizard.py`): The *Equipment* page gains a **"Detect Connected Camera"**
+  button. Connect exactly one camera, enter its alias name, click the button — SEW reads the
+  serial number and saves the mapping. A green ✓ next to the name field confirms a mapping is
+  stored; a grey hint appears otherwise. Repeat the process (one camera at a time) for each
+  body that shares a model name with another.
 
 ### Changed
 - **`take_picture` now uses `trigger_capture` instead of `capture_image`**: The shutter is
@@ -49,10 +80,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   reducing per-shot overhead by ~300 ms. Aperture is kept in its own isolated round-trip so
   that a failure on a telescope or fixed-aperture lens never silently rolls back the ISO and
   shutter speed that were already applied.
-- **Wizard corona inter-shot buffer reduced from 2 s to 1 s**: The gap added after each corona
-  shot in the wizard's script generator was halved. Because `take_picture` no longer blocks on
-  the file being written to the card (via `trigger_capture`), a 1 s buffer is sufficient padding
-  for USB overhead, allowing more corona shots to be scheduled within the same totality window.
+
 
 ## [1.5.1] - 2026-03-05
 

@@ -268,20 +268,43 @@ def _drain_camera_events(target, context, timeout_ms: int = 200, max_events: int
             break
 
 
+# Maximum time a scheduled job may wait for the camera USB lock before it is
+# considered too late to be worth taking.  Once a job has waited this long, the
+# camera is clearly busy with a previous shot and the queued shot would fire
+# well past its scheduled time.  Dropping it preserves timing accuracy for all
+# remaining scheduled shots (e.g. C1, C2, MAX) that have not yet been delayed.
+# Increase this only if you intentionally schedule shots closer together than
+# the camera's own cycle time and accept the resulting timing drift.
+_MAX_LOCK_WAIT_S: float = 1.5
+
+
 def _serialised_on_camera(func):
     """Decorator that serialises access to the physical camera.
 
     gphoto2 / libgphoto2 is not thread-safe.  APScheduler fires each scheduled
     job in its own thread, so two take_picture jobs scheduled 1 s apart can
     collide on the USB connection and raise -110 I/O in progress.  This
-    decorator acquires the per-camera RLock before entering the function and
-    releases it on exit, ensuring concurrent jobs queue up rather than crash.
+    decorator uses a timed acquire on the per-camera RLock.  If the lock
+    cannot be acquired within _MAX_LOCK_WAIT_S the job is silently dropped:
+    the camera was still busy from a previous shot and firing now would place
+    this shot well past its scheduled time, undermining the timing accuracy
+    that eclipse photography requires.
     functools.wraps preserves __name__ so GUI table formatting still works.
     """
     @functools.wraps(func)
     def wrapper(camera, *args, **kwargs):
-        with camera._usb_lock:
+        acquired = camera._usb_lock.acquire(timeout=_MAX_LOCK_WAIT_S)
+        if not acquired:
+            logging.warning(
+                '%s: dropped — camera was still busy after %.1fs '
+                '(shot is too late; timing accuracy preserved)',
+                func.__name__, _MAX_LOCK_WAIT_S,
+            )
+            return
+        try:
             return func(camera, *args, **kwargs)
+        finally:
+            camera._usb_lock.release()
     return wrapper
 
 
@@ -356,14 +379,20 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
             except gphoto2.GPhoto2Error as e:
                 logging.warning('Could not ensure Nikon single-frame mode before take_picture: %s', e)
 
-    # Fire the shutter using trigger_capture (non-blocking: does not wait for the
-    # file to be written to the card before returning, unlike GP_CAPTURE_IMAGE).
     target = camera._camera if hasattr(camera, '_camera') else camera
+
+    # Fire the shutter via trigger_capture (PTP InitiateCapture).  This is the
+    # only path that guarantees the camera uses the USB-programmed ISO, shutter
+    # speed and aperture values from __adapt_camera_settings.  eosremoterelease
+    # ('Immediate', 'Press Full', etc.) emulates the physical shutter button and
+    # causes the camera to use its physical-dial settings, ignoring USB-set
+    # values — so it must not be used for take_picture.
+    # On EOS R-series mirrorless bodies trigger_capture incurs a live-view
+    # exit+re-entry overhead (~1-2 s).  This is handled by increasing
+    # misfire_grace_time in the APScheduler so queued shots are not dropped.
     try:
         gp.check_result(gp.gp_camera_trigger_capture(target, context))
         logging.debug('take_picture: trigger_capture fired')
-        # Wait for GP_EVENT_CAPTURE_COMPLETE before returning so the camera's USB
-        # interface is genuinely free when the next command arrives.
         _wait_for_capture_complete(target, context)
     except gphoto2.GPhoto2Error as e:
         logging.warning('trigger_capture failed (%s), falling back to GP_CAPTURE_IMAGE', e)
@@ -386,27 +415,34 @@ def __adapt_camera_settings(camera, camera_settings):
 
     vendor = getattr(camera, 'vendor', None)
 
-    # --- Step 1: set manual exposure mode in its own round-trip ---
-    # Some bodies reject ISO/aperture/shutter changes while in Av or Tv mode, so
-    # this must be applied before the batch below.
+    # --- Step 1: mutate exposure mode in memory (no separate set_config) ---
+    # The mode widget is included in the ISO+shutter batch below so that all
+    # three reach the camera in a single USB round-trip instead of two.
     if vendor == 'Nikon':
         try:
             exp_program = gp.check_result(gp.gp_widget_get_child_by_name(config, 'expprogram'))
             gp.gp_widget_set_value(exp_program, "1")  # 1 = Manual
-            _set_gp_config(target, config, context)
-            logging.debug('Set Nikon camera to Manual mode')
+            logging.debug('Queued Nikon expprogram=Manual for next set_config')
         except gphoto2.GPhoto2Error as e:
-            logging.warning('Could not set Nikon camera to Manual mode: %s', e)
+            logging.warning('Could not queue Nikon expprogram: %s', e)
     elif vendor == 'Canon':
         try:
             ae_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'autoexposuremodedial'))
             gp.gp_widget_set_value(ae_mode, "Manual")
-            _set_gp_config(target, config, context)
-            logging.debug('Set Canon camera to Manual mode')
+            logging.debug('Queued Canon autoexposuremodedial=Manual for next set_config')
         except gphoto2.GPhoto2Error as e:
-            logging.warning('Could not set Canon camera to Manual mode: %s', e)
+            logging.warning('Could not queue Canon autoexposuremodedial: %s', e)
+        # Force single-frame drive mode so that eosremoterelease='Immediate' fires
+        # exactly one shot even if the camera was left in continuous/burst mode.
+        try:
+            drive_w = gp.check_result(gp.gp_widget_get_child_by_name(config, 'drivemode'))
+            gp.gp_widget_set_value(drive_w, 'Single')
+            logging.debug('Queued Canon drivemode=Single for next set_config')
+        except gphoto2.GPhoto2Error:
+            pass  # Not available on all bodies — safe to skip
 
-    # --- Step 2: mutate ISO and shutter speed in memory, push in one round-trip ---
+    # --- Step 2: mutate ISO and shutter speed in memory, push all in one round-trip ---
+    # This single set_config also delivers the exposure-mode change from step 1.
     # Auto-ISO must be off on Nikon before setting a manual value; mutate in memory
     # together with the ISO widget so it costs no extra round-trip.
     if vendor == 'Nikon':
@@ -908,6 +944,97 @@ def get_camera(camera_name: str):
         return GPhotoCameraAdapter(camera, camera_name)
 
 
+def get_camera_by_port(model_name: str, port: str, alias: Optional[str] = None) -> 'BaseCamera':
+    """Open a gphoto2 camera at a specific USB port.
+
+    Unlike get_camera(), this function connects to the camera at *port* directly,
+    so it works correctly when multiple cameras of the same model are connected at
+    different USB ports.
+
+    Args:
+        model_name: Camera model name as reported by gphoto2 (e.g. "Canon EOS 80D").
+        port:       USB port address (e.g. "usb:001,005").
+        alias:      Optional display/script name for this camera.  When provided the
+                    resulting camera object's `name` attribute is set to *alias* rather
+                    than *model_name*, so the name matches the key used in the script.
+
+    Returns: A vendor-specific BaseCamera adapter.
+
+    Raises:
+        CameraError: If the camera cannot be opened at the given port.
+    """
+    display_name = alias if alias else model_name
+    logging.debug('get_camera_by_port(%s, %s, alias=%s)', model_name, port, alias)
+
+    port_info_list = gp.PortInfoList()
+    port_info_list.load()
+    abilities_list = gp.CameraAbilitiesList()
+    abilities_list.load()
+
+    camera = gp.Camera()
+    idx = port_info_list.lookup_path(port)
+    camera.set_port_info(port_info_list[idx])
+    idx = abilities_list.lookup_model(model_name)
+    camera.set_abilities(abilities_list[idx])
+
+    context = gp.gp_context_new()
+
+    try:
+        camera.init(context)
+
+        config = gp.check_result(gp.gp_camera_get_config(camera, context))
+        capture_target = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturetarget'))
+        value = gp.check_result(gp.gp_widget_get_choice(capture_target, 1))
+        gp.gp_widget_set_value(capture_target, value)
+        gp.gp_camera_set_config(camera, config, context)
+
+        try:
+            drive_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'drivemode'))
+            gp.gp_widget_set_value(drive_mode, "Continuous high speed")
+            gp.gp_camera_set_config(camera, config, context)
+            logging.debug('Set drivemode to Continuous high speed for %s', display_name)
+        except gphoto2.GPhoto2Error as e:
+            logging.debug('Could not set drivemode for %s: %s', display_name, e)
+    except gphoto2.GPhoto2Error as e:
+        logging.exception('gphoto2 error while initializing camera %s at %s: %s', model_name, port, e)
+
+    if camera is None:
+        raise CameraError(f'Could not create camera object for {model_name} at {port}')
+
+    if "Canon" in model_name:
+        logging.debug('Wrapping camera %s as CanonCamera (alias=%s)', model_name, alias)
+        return CanonCamera(camera, display_name)
+    elif "Nikon" in model_name:
+        logging.debug('Wrapping camera %s as NikonCamera (alias=%s)', model_name, alias)
+        return NikonCamera(camera, display_name)
+    else:
+        logging.debug('Wrapping camera %s as GPhotoCameraAdapter (alias=%s)', model_name, alias)
+        return GPhotoCameraAdapter(camera, display_name)
+
+
+def get_serial_number(camera: 'BaseCamera') -> Optional[str]:
+    """Read the camera's serial number via the gphoto2 'serialnumber' config widget.
+
+    Most Canon and Nikon bodies expose this widget.  Returns ``None`` if the
+    camera does not expose a serial number or if reading fails (e.g. virtual
+    camera, unsupported model, I/O error).
+    """
+    if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
+        return None
+    try:
+        context = gp.gp_context_new()
+        target = camera._camera if hasattr(camera, '_camera') else camera
+        config = gp.check_result(gp.gp_camera_get_config(target, context))
+        ok, widget = gp.gp_widget_get_child_by_name(config, 'serialnumber')
+        if ok >= gp.GP_OK:
+            serial = widget.get_value()
+            if serial:
+                return str(serial).strip()
+    except Exception:
+        pass
+    return None
+
+
 def get_free_space(camera: Camera) -> float:
     """ Return the free space on the card of the selected camera 
     
@@ -1257,9 +1384,26 @@ def __set_datetime(config) -> bool:
     return False
 
 
-def get_camera_dict(is_simulator: bool = False) -> dict:
-    """ Get a dictionary of camera names and their GPhoto2 camera object
-    Returns: Dictionary of camera names and their GPhoto2 camera object
+def get_camera_dict(is_simulator: bool = False, alias_map: Optional[dict] = None) -> dict:
+    """Get a dictionary mapping camera names/aliases to their camera objects.
+
+    Args:
+        is_simulator: If True, returns a single VirtualCamera (alias_map is ignored).
+        alias_map:    Optional dict ``{serial_number: alias_name_or_list}``.
+                      When provided, each detected camera's serial number is read
+                      via gphoto2 and looked up in the map.  A serial can map to
+                      either a single alias string **or** a list of aliases — the
+                      latter lets you save the same physical camera under multiple
+                      configuration names (e.g. ``"Canon EOS 80D (telescope)"``
+                      and ``"Canon EOS 80D (lens)"``).  The camera object is then
+                      registered in the returned dict under **every** alias so that
+                      whichever name the current script uses will be found.
+                      If only one camera of each model is connected and no aliasing
+                      is needed, omit this argument — the gphoto2 model name is
+                      used as the key, identical to the original behaviour.
+
+    Returns:
+        Dict mapping camera name/alias → BaseCamera adapter.
     """
     if is_simulator:
         # Return a single VirtualCamera for simulator mode
@@ -1267,16 +1411,58 @@ def get_camera_dict(is_simulator: bool = False) -> dict:
         vc.connect()
         return {vc.name: vc}
 
-    camera_names = get_cameras()
-    # Print detected cameras to terminal for user visibility
+    detected = get_cameras()  # [(model_name, port), ...]
     try:
-        print("Found cameras:", camera_names, flush=True)
+        print("Found cameras:", detected, flush=True)
     except Exception:
         logging.debug('Could not print found cameras to terminal')
 
-    cameras = dict()
-    for camera_name in camera_names:
-        cameras[camera_name[0]] = get_camera(camera_name[0])
+    cameras: dict = {}
+    for model_name, port in detected:
+        cam = get_camera_by_port(model_name, port)
+
+        key = model_name  # default: use the gphoto2 model name
+
+        if alias_map:
+            try:
+                serial = get_serial_number(cam)
+                if serial and serial in alias_map:
+                    raw_aliases = alias_map[serial]
+                    # Support both a plain string and a list of aliases
+                    if isinstance(raw_aliases, str):
+                        raw_aliases = [raw_aliases]
+                    key = raw_aliases[0]
+                    # Rename the camera object so its .name matches the primary alias
+                    cam.name = key
+                    logging.debug(
+                        'Camera %s@%s serial=%s mapped to alias "%s"',
+                        model_name, port, serial, key,
+                    )
+                    # Register under every additional alias (same camera object)
+                    for extra_alias in raw_aliases[1:]:
+                        cameras[extra_alias] = cam
+                        logging.debug(
+                            'Camera %s@%s also registered under alias "%s"',
+                            model_name, port, extra_alias,
+                        )
+                else:
+                    logging.debug(
+                        'Camera %s@%s serial=%s has no alias mapping; using model name',
+                        model_name, port, serial,
+                    )
+            except Exception:
+                logging.exception('Could not read serial number for %s@%s', model_name, port)
+
+        if key in cameras:
+            logging.warning(
+                'Camera key "%s" already exists in the camera dict.  Multiple cameras '
+                'of the same model are connected without distinct aliases.  Connect '
+                'each camera separately and use "Detect Connected Camera" in the wizard '
+                'to assign unique names, or create unique camera names in the script.',
+                key,
+            )
+        cameras[key] = cam
+
     return cameras
 
 

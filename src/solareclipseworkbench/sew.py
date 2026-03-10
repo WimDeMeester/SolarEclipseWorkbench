@@ -5,6 +5,7 @@ from astropy.time import Time
 
 import camera
 from solareclipseworkbench import gui
+from solareclipseworkbench.location_ui import ConfigManager
 from solareclipseworkbench.reference_moments import calculate_reference_moments
 from solareclipseworkbench.utils import observe_solar_eclipse
 
@@ -23,6 +24,7 @@ def main(args):
 
             cameras = camera.get_camera_dict(
                 is_simulator=args.virtual_camera,
+                alias_map=ConfigManager().get_camera_aliases() or None,
             )
 
             # Only do a simulation if args.c1 is set

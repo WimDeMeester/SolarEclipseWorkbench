@@ -62,6 +62,12 @@ class ConfigManager:
                 "camera": None,
                 "location": None,
             },
+            # Maps camera serial numbers to user-defined alias names.
+            # A single serial can have *multiple* aliases so that the same physical
+            # camera body can be saved under different configuration names
+            # (e.g. "Canon EOS 80D (telescope)" and "Canon EOS 80D (lens)").
+            # Format: {"<serial_number>": ["alias1", "alias2", ...], ...}
+            "camera_aliases": {},
         }
 
     def save_config(self):
@@ -196,6 +202,92 @@ class ConfigManager:
             self.save_config()
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # Camera alias helpers  (serial number → script alias mapping)
+    # ------------------------------------------------------------------
+
+    def get_camera_aliases(self) -> Dict[str, List[str]]:
+        """Return the full serial-number → aliases mapping dict.
+
+        Each serial maps to a **list** of alias names.  A single physical camera
+        body can have multiple aliases — e.g. the same body used with a telescope
+        ("Canon EOS 80D (telescope)") and with a lens
+        ("Canon EOS 80D (lens)").
+
+        Old config files that stored a plain string value per serial are migrated
+        to a one-element list on first read so that callers always see lists.
+        """
+        raw = self.config.setdefault("camera_aliases", {})
+        # Migrate old string → list format transparently
+        for serial, val in list(raw.items()):
+            if isinstance(val, str):
+                raw[serial] = [val]
+        return raw
+
+    def set_camera_alias(self, serial: str, alias: str) -> None:
+        """Link *alias* to *serial*.
+
+        A physical camera (identified by *serial*) can have **multiple** aliases.
+        For example, the same camera body used with a telescope and with a lens
+        can be saved as two named configurations and the script picks the right
+        one by name.  ``set_camera_alias`` therefore *adds* *alias* to the list
+        for *serial* rather than replacing it.
+
+        The reverse direction remains 1-to-1: if *alias* was previously mapped to
+        a **different** serial, that old mapping is removed first so that the same
+        alias name never points to two different physical camera bodies.
+        """
+        raw = self.config.setdefault("camera_aliases", {})
+        # Migrate any legacy string values
+        for s, v in list(raw.items()):
+            if isinstance(v, str):
+                raw[s] = [v]
+        # Remove alias from any other serial that currently owns it
+        for s, aliases_list in list(raw.items()):
+            if s != serial and alias in aliases_list:
+                aliases_list.remove(alias)
+                if not aliases_list:
+                    del raw[s]
+        # Add alias to this serial's list
+        serial_aliases = raw.setdefault(serial, [])
+        if alias not in serial_aliases:
+            serial_aliases.append(alias)
+        self.save_config()
+
+    def delete_camera_alias(self, serial: str, alias: Optional[str] = None) -> bool:
+        """Remove an alias mapping for *serial*.
+
+        If *alias* is given, only that specific alias is removed from *serial*'s
+        list.  If *alias* is ``None``, **all** aliases for *serial* are removed.
+        Returns ``True`` if anything was changed.
+        """
+        raw = self.config.get("camera_aliases", {})
+        if serial not in raw:
+            return False
+        if alias is None:
+            del raw[serial]
+        else:
+            val = raw[serial]
+            if isinstance(val, str):
+                val = [val]
+            if alias not in val:
+                return False
+            val.remove(alias)
+            if val:
+                raw[serial] = val
+            else:
+                del raw[serial]
+        self.save_config()
+        return True
+
+    def get_serial_for_alias(self, alias: str) -> Optional[str]:
+        """Return the serial number that is mapped to *alias*, or None."""
+        for serial, val in self.config.get("camera_aliases", {}).items():
+            aliases_list = [val] if isinstance(val, str) else val
+            if alias in aliases_list:
+                return serial
+        return None
 
 
 # ---------------------------------------------------------------------------

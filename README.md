@@ -26,6 +26,7 @@
       - [Datetime format](#datetime-format)
       - [Saving settings](#saving-settings)
   - [Running the Configuration Wizard](#running-the-configuration-wizard)
+  - [Using two cameras of the same model, or one camera with multiple setups](#using-two-cameras-of-the-same-model-or-one-camera-with-multiple-setups)
   - [Script file format](#script-file-format)
     - [General remarks](#general-remarks)
     - [Commands](#commands)
@@ -365,6 +366,55 @@ python -m solareclipseworkbench.wizard
 For a detailed walkthrough of each wizard step, see the [Wizard Guide](docs/WIZARD_GUIDE.md).
 For capturing your GPS coordinates from your smartphone (works over WiFi or phone hotspot — no internet required at the eclipse site), see [docs/GPS_PHONE.md](docs/GPS_PHONE.md).
 
+## Using two cameras of the same model, or one camera with multiple setups
+
+SEW's default camera identification uses the gphoto2 model name (e.g. `Canon EOS 80D`) as
+the key.  This works fine when each model is used only once, but fails in two situations:
+
+- **Two bodies of the same model** connected at the same time — both would appear as the same key.
+- **One body, multiple optical setups** — e.g. the same Canon EOS 80D used with a telescope in one
+  script and with a lens in a different script, each referenced by a different name.
+
+SEW handles both cases by reading each camera's **serial number** and mapping it to one or
+more **alias names** that you choose.  Those aliases are then used exactly like a camera
+name in your script — nothing else changes.
+
+If you only use one camera per model and always use the model name in your scripts, no
+setup is required and everything works as before.
+
+### Step-by-step setup
+
+1. **Open the wizard** and navigate to the *Equipment* page.
+2. **Give the camera a unique alias name** in the *Camera Name* field
+   (e.g. `Canon EOS 80D (telescope)`).
+3. **Connect only that one camera** to the computer via USB, then click **"Detect Connected Camera"**.
+   - SEW reads the camera's serial number and saves the mapping `serial → alias` in
+     `~/.sew_wizard_config.json`.
+   - A green ✓ appears next to the name field confirming the mapping is stored.
+4. **To add a second alias for the same body** (e.g. for a different optical setup): enter
+   the new alias name (e.g. `Canon EOS 80D (lens)`) and click **"Detect Connected Camera"**
+   again with the same physical camera still connected.  SEW adds the new alias alongside the
+   existing one — both point to the same serial number.
+5. **To add a second physical body of the same model**: disconnect the first camera, enter a
+   different alias (e.g. `Canon EOS 80D (tele)`), connect the second body, and click
+   **"Detect Connected Camera"**.
+6. **Use the alias names in your scripts** exactly as you would any camera name:
+
+```
+# Telescope script
+take_picture, C1, -, 0:01:02.0, Canon EOS 80D (telescope), 1/2000, 8, 100, "Corona"
+
+# Lens script (different file, used on a different occasion)
+take_picture, C1, -, 0:01:02.0, Canon EOS 80D (lens), 1/1250, 5.6, 200, "Wide partial"
+```
+
+7. When SEW starts with the camera connected, it reads the serial number, looks up all
+   registered aliases for that serial, and makes the camera available under **every** alias
+   name — so whichever script you load, the right (or only) camera is found automatically.
+
+> **Note**: The detection flow requires exactly one camera to be connected at the time you
+> click the button. If zero or more than one camera is detected, SEW will show a warning.
+
 ## Script file format
 
 ### General remarks
@@ -473,8 +523,8 @@ endfor
 
 ## Shortcomings
 
-- In normal mode, only one picture per second can be made.
-- The computer you are using will probably fall asleep during the solar eclipse.  You can prevent this on macOS using [caffeine](https://www.caffeine-app.net/).  On Windows, you can use the Windows [powertoys](https://awake.den.dev/). 
+- In normal mode, only one picture per two seconds can be made.
+- The computer you are using will probably fall asleep during the solar eclipse.  You can prevent this on macOS and Linux using [caffeine](https://www.caffeine-app.net/).  On Windows, you can use the Windows [powertoys](https://awake.den.dev/). 
 
 ## Converting scripts from Solar Eclipse Maestro
 

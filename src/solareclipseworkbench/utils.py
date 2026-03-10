@@ -78,6 +78,9 @@ def start_scheduler():
     Returns: Background scheduler that has been started.
     """
 
+    # Use the default misfire_grace_time (1 s).  Timing accuracy is enforced
+    # inside _serialised_on_camera: if the USB lock is busy for more than
+    # _MAX_LOCK_WAIT_S the shot is dropped rather than taken late.
     scheduler = BackgroundScheduler()
     scheduler.start()
 
