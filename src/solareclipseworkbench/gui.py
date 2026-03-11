@@ -1668,7 +1668,8 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 camera_dict = existing_map
                 logging.debug('CameraOverview: reusing %d existing camera object(s)', len(camera_dict))
             else:
-                camera_dict = get_camera_dict(is_simulator=is_sim)
+                alias_map = ConfigManager().get_camera_aliases() or None
+                camera_dict = get_camera_dict(is_simulator=is_sim, alias_map=alias_map)
 
             data = []
             for camera_name, camera in camera_dict.items():
@@ -1830,6 +1831,16 @@ class JobsTableModel(QAbstractTableModel, Observable):
                     step = job.args[2]
 
                     job_string = f"take_bracket(\"{camera_name}\", {shutter_speed}, {aperture}, {iso}, {step})"
+
+                elif job.func.__name__ == "take_hdr":
+                    camera_settings: CameraSettings = job.args[1]
+                    camera_name = camera_settings.camera_name
+                    shutter_speed = camera_settings.shutter_speed
+                    aperture = camera_settings.aperture
+                    iso = camera_settings.iso
+                    stops = job.args[2]
+
+                    job_string = f"take_hdr(\"{camera_name}\", {shutter_speed}, {aperture}, {iso}, {stops} stops)"
 
                 elif job.func.__name__ == "sync_cameras":
                     job_string = f"sync_cameras()"

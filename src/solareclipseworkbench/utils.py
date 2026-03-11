@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
-from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_bracket, sync_cameras, scripts, execute_command
+from solareclipseworkbench import voice_prompt, take_picture, take_burst, take_bracket, take_hdr, sync_cameras, scripts, execute_command
 from solareclipseworkbench.camera import CameraSettings
 from solareclipseworkbench.gui import SolarEclipseController
 from solareclipseworkbench.solar_eclipse import get_solar_eclipses
@@ -15,6 +15,7 @@ COMMANDS = {
     'take_picture': take_picture,
     'take_burst': take_burst,
     'take_bracket': take_bracket,
+    'take_hdr': take_hdr,
     'sync_cameras': sync_cameras,
     'command': execute_command
 }
@@ -77,6 +78,9 @@ def start_scheduler():
     Returns: Background scheduler that has been started.
     """
 
+    # Use the default misfire_grace_time (1 s).  Timing accuracy is enforced
+    # inside _serialised_on_camera: if the USB lock is busy for more than
+    # _MAX_LOCK_WAIT_S the shot is dropped rather than taken late.
     scheduler = BackgroundScheduler()
     scheduler.start()
 
@@ -165,6 +169,10 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
                 elif func_name == "take_bracket":
                     settings = CameraSettings(args[0].strip(), args[1].strip(), args[2].strip(), int(args[3].strip()))
                     new_args = [cameras[args[0].strip()], settings, str(args[4].strip())]
+                    args = new_args
+                elif func_name == "take_hdr":
+                    settings = CameraSettings(args[0].strip(), args[1].strip(), args[2].strip(), int(args[3].strip()))
+                    new_args = [cameras[args[0].strip()], settings, int(args[4].strip())]
                     args = new_args
                 elif func_name == "sync_cameras":
                     args = [controller]

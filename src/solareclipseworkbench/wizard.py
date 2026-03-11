@@ -299,6 +299,13 @@ class EquipmentPage(QWizardPage):
             self.camera_select_combo.addItem(camera["name"])
         
         camera_select_h_layout.addWidget(self.camera_select_combo)
+
+        self.delete_camera_btn = QPushButton("Delete Camera")
+        self.delete_camera_btn.clicked.connect(self._delete_camera)
+        self.delete_camera_btn.setToolTip("Permanently delete this camera from saved configurations")
+        self.delete_camera_btn.setEnabled(False)  # Disabled until a saved camera is selected
+        camera_select_h_layout.addWidget(self.delete_camera_btn)
+
         camera_select_layout.addLayout(camera_select_h_layout)
         
         camera_select_group.setLayout(camera_select_layout)
@@ -316,6 +323,7 @@ class EquipmentPage(QWizardPage):
         apply_dark_to_lineedit(self.camera_name_edit)
         # Connect textChanged to update page completeness
         self.camera_name_edit.textChanged.connect(lambda: self.completeChanged.emit())
+        self.camera_name_edit.textChanged.connect(self._on_camera_name_changed)
         camera_name_layout.addWidget(self.camera_name_edit)
         
         # Save camera button
@@ -325,6 +333,27 @@ class EquipmentPage(QWizardPage):
         camera_name_layout.addWidget(self.save_camera_btn)
         
         camera_details_layout.addLayout(camera_name_layout)
+
+        # Camera ID detection row
+        detect_id_layout = QHBoxLayout()
+        self.detect_camera_btn = QPushButton("Detect Connected Camera")
+        self.detect_camera_btn.setToolTip(
+            "Connect a physical camera via USB, then click this button to read its unique "
+            "serial number and map it to the camera name above.\n\n"
+            "This is required when you use two cameras of the same brand and model "
+            "(e.g. two Canon EOS 80D) so that each can be addressed by its own name "
+            "in the script.\n\n"
+            "If only one camera of each model is used, you can skip this step."
+        )
+        self.detect_camera_btn.clicked.connect(self._detect_camera_id)
+        detect_id_layout.addWidget(self.detect_camera_btn)
+
+        self.camera_id_label = QLabel("")
+        self.camera_id_label.setStyleSheet("QLabel { color: #888; font-size: 9pt; font-style: italic; }")
+        self.camera_id_label.setWordWrap(True)
+        detect_id_layout.addWidget(self.camera_id_label, 1)
+        camera_details_layout.addLayout(detect_id_layout)
+
         camera_details_group.setLayout(camera_details_layout)
         layout.addWidget(camera_details_group)
         
@@ -498,6 +527,9 @@ class EquipmentPage(QWizardPage):
     
     def _on_camera_selected(self, camera_name):
         """Load selected camera configuration."""
+        is_saved = camera_name != "New Camera..."
+        self.delete_camera_btn.setEnabled(is_saved)
+
         if camera_name == "New Camera...":
             # Clear all fields
             self.camera_name_edit.clear()
@@ -527,6 +559,8 @@ class EquipmentPage(QWizardPage):
                 self.camera_name_edit.setReadOnly(True)
                 self.camera_name_edit.setStyleSheet("QLineEdit:read-only { background-color: #f0f0f0; }")
         
+        # Refresh camera-ID status label
+        self._refresh_camera_id_label(self.camera_name_edit.text().strip())
         # Emit signal to re-validate page completeness
         self.completeChanged.emit()
     
@@ -562,7 +596,167 @@ class EquipmentPage(QWizardPage):
         # Make camera name read-only after saving (not disabled, so validation works)
         self.camera_name_edit.setReadOnly(True)
         self.camera_name_edit.setStyleSheet("QLineEdit:read-only { background-color: #f0f0f0; }")
-    
+
+    def _delete_camera(self):
+        """Delete the currently selected camera from saved configurations."""
+        camera_name = self.camera_select_combo.currentText()
+        if camera_name == "New Camera...":
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Delete Camera",
+            f"Are you sure you want to delete '{camera_name}'?\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        if self.config_manager.delete_camera(camera_name):
+            index = self.camera_select_combo.findText(camera_name)
+            if index >= 0:
+                self.camera_select_combo.removeItem(index)
+            # Reset to "New Camera..."
+            self.camera_select_combo.setCurrentIndex(0)
+
+    def _on_camera_name_changed(self, text: str):
+        """Update the camera-ID status label whenever the camera name changes."""
+        self._refresh_camera_id_label(text.strip())
+
+    def _refresh_camera_id_label(self, camera_name: str):
+        """Show whether *camera_name* already has a serial number mapped to it."""
+        if not camera_name:
+            self.camera_id_label.setText("")
+            return
+        serial = self.config_manager.get_serial_for_alias(camera_name)
+        if serial:
+            self.camera_id_label.setText(f"Camera ID mapped ✓  (serial: {serial})")
+            self.camera_id_label.setStyleSheet("QLabel { color: #4a8; font-size: 9pt; }")
+        else:
+            self.camera_id_label.setText(
+                "No camera ID mapped yet — only needed when two cameras of the same model are used,"
+                " or when the same camera is saved under multiple configuration names."
+            )
+            self.camera_id_label.setStyleSheet("QLabel { color: #888; font-size: 9pt; font-style: italic; }")
+
+    def _detect_camera_id(self):
+        """Read the serial number of a connected camera and link it to the current camera name."""
+        from PyQt6.QtWidgets import QApplication
+
+        camera_name = self.camera_name_edit.text().strip()
+        if not camera_name:
+            QMessageBox.warning(
+                self, "No Camera Name",
+                "Please enter a camera name before detecting a connected camera."
+            )
+            return
+
+        # Give visual feedback while detecting
+        self.detect_camera_btn.setEnabled(False)
+        self.detect_camera_btn.setText("Detecting…")
+        QApplication.processEvents()
+
+        try:
+            from solareclipseworkbench.camera import get_cameras, get_camera_by_port, get_serial_number
+            detected = get_cameras()
+        except Exception as exc:
+            self.detect_camera_btn.setEnabled(True)
+            self.detect_camera_btn.setText("Detect Connected Camera")
+            QMessageBox.critical(
+                self, "Detection Failed",
+                f"Could not detect cameras via gphoto2:\n{exc}\n\n"
+                "Make sure your camera is connected and gphoto2 is installed."
+            )
+            return
+        finally:
+            self.detect_camera_btn.setEnabled(True)
+            self.detect_camera_btn.setText("Detect Connected Camera")
+
+        if not detected:
+            QMessageBox.information(
+                self, "No Camera Found",
+                "No cameras were detected.\n\n"
+                "Please connect the camera you want to map to "
+                f"'{camera_name}' and try again."
+            )
+            return
+
+        if len(detected) > 1:
+            # Ask the user to disconnect all but one camera
+            model_list = "\n".join(f"  • {m} ({p})" for m, p in detected)
+            QMessageBox.warning(
+                self, "Multiple Cameras Connected",
+                f"More than one camera was detected:\n{model_list}\n\n"
+                f"Please disconnect all cameras except the one you want to map to "
+                f"'{camera_name}', then click 'Detect Connected Camera' again."
+            )
+            return
+
+        # Exactly one camera connected — connect to it and read the serial number
+        model_name, port = detected[0]
+        self.detect_camera_btn.setEnabled(False)
+        self.detect_camera_btn.setText("Reading serial…")
+        QApplication.processEvents()
+
+        try:
+            cam = get_camera_by_port(model_name, port)
+            serial = get_serial_number(cam)
+            try:
+                cam.disconnect()
+            except Exception:
+                pass
+        except Exception as exc:
+            self.detect_camera_btn.setEnabled(True)
+            self.detect_camera_btn.setText("Detect Connected Camera")
+            QMessageBox.critical(
+                self, "Connection Failed",
+                f"Could not open the camera '{model_name}':\n{exc}"
+            )
+            return
+        finally:
+            self.detect_camera_btn.setEnabled(True)
+            self.detect_camera_btn.setText("Detect Connected Camera")
+
+        if not serial:
+            QMessageBox.warning(
+                self, "Serial Number Unavailable",
+                f"The camera '{model_name}' was detected, but its serial number "
+                "could not be read via gphoto2.\n\n"
+                "Without a serial number, duplicate cameras of the same model cannot "
+                "be distinguished automatically.  The camera name will still be used "
+                "as-is (existing behaviour)."
+            )
+            return
+
+        # Confirm with the user before storing the mapping
+        reply = QMessageBox.question(
+            self,
+            "Map Camera ID",
+            f"Detected:  {model_name}\n"
+            f"Serial:    {serial}\n\n"
+            f"Map this camera to the name '{camera_name}'?\n\n"
+            "When SEW starts, it will look up this serial number on the connected "
+            "cameras and use '{camera_name}' as the key — matching what is written "
+            "in your script.".format(camera_name=camera_name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.config_manager.set_camera_alias(serial, camera_name)
+        self._refresh_camera_id_label(camera_name)
+        QMessageBox.information(
+            self, "Camera ID Saved",
+            f"Camera '{camera_name}' is now linked to serial number {serial}.\n\n"
+            "When SEW starts with this camera connected, it will be recognised as "
+            f"'{camera_name}' — matching the name used in your script.\n\n"
+            "You can register the same camera body under additional names "
+            "(e.g. for different equipment setups like telescope vs. lens) by "
+            "entering the next name and clicking 'Detect Connected Camera' again."
+        )
+
     def _on_sync_enabled_changed(self, state):
         """Enable/disable camera sync interval selection."""
         enabled = state == Qt.CheckState.Checked.value
@@ -643,10 +837,30 @@ class PhenomenaPage(QWizardPage):
         phenomena_layout.addWidget(self.earthshine_check)
         
         # Corona
-        self.corona_check = QCheckBox("Solar corona (during totality)")
+        self.corona_check = QCheckBox("Solar corona series (inner/outer corona, auto-scheduled throughout totality)")
         self.corona_check.setChecked(True)
         phenomena_layout.addWidget(self.corona_check)
-        
+
+        # HDR burst at maximum eclipse
+        self.hdr_check = QCheckBox("HDR burst at maximum eclipse (take_hdr)")
+        self.hdr_check.setChecked(False)
+        self.hdr_check.stateChanged.connect(self._on_hdr_changed)
+        phenomena_layout.addWidget(self.hdr_check)
+
+        hdr_stops_widget = QWidget()
+        hdr_stops_layout = QHBoxLayout()
+        hdr_stops_layout.setContentsMargins(20, 0, 0, 0)
+        hdr_stops_layout.addWidget(QLabel("Number of stops to ramp:"))
+        self.hdr_stops_spin = QSpinBox()
+        self.hdr_stops_spin.setRange(2, 16)
+        self.hdr_stops_spin.setValue(7)
+        self.hdr_stops_spin.setSuffix(" stops")
+        self.hdr_stops_spin.setEnabled(False)
+        hdr_stops_layout.addWidget(self.hdr_stops_spin)
+        hdr_stops_layout.addStretch()
+        hdr_stops_widget.setLayout(hdr_stops_layout)
+        phenomena_layout.addWidget(hdr_stops_widget)
+
         phenomena_group.setLayout(phenomena_layout)
         layout.addWidget(phenomena_group)
         
@@ -761,6 +975,8 @@ class PhenomenaPage(QWizardPage):
         self.registerField("filter_manual", self.filter_manual_spin, "value")
         self.registerField("voice_enabled", self.voice_enabled_check)
         self.registerField("voice_basic", self.voice_basic_radio)
+        self.registerField("hdr_burst", self.hdr_check)
+        self.registerField("hdr_stops", self.hdr_stops_spin, "value")
     
     def _on_filter_changed(self, text):
         """Enable/disable manual entry based on filter selection."""
@@ -771,6 +987,11 @@ class PhenomenaPage(QWizardPage):
         enabled = state == Qt.CheckState.Checked.value
         self.voice_basic_radio.setEnabled(enabled)
         self.voice_extended_radio.setEnabled(enabled)
+
+    def _on_hdr_changed(self, state):
+        """Enable/disable HDR stops selection."""
+        enabled = state == Qt.CheckState.Checked.value
+        self.hdr_stops_spin.setEnabled(enabled)
 
 
 class SummaryPage(QWizardPage):
@@ -1514,6 +1735,23 @@ class SummaryPage(QWizardPage):
                                 (30.0, 30.0 + earthshine_exposure + 2.0),  # C2+30s shot
                                 (totality_duration - 30.0, totality_duration - 30.0 + earthshine_exposure + 2.0)  # C3-30s shot
                             ]
+
+                        # Calculate HDR burst exclusion window if HDR is enabled (fired at MAX-10s)
+                        hdr_times = []
+                        if wizard.field('hdr_burst'):
+                            hdr_stops_val = wizard.field('hdr_stops')
+                            hdr_start_speed_s = parse_shutter_speed(corona_lower[0])
+                            # Sum actual shutter-open times: ramp down (start→slowest) then up
+                            ramp_down = sum(hdr_start_speed_s * (2 ** k) for k in range(hdr_stops_val + 1))
+                            ramp_up = sum(hdr_start_speed_s * (2 ** k) for k in range(hdr_stops_val - 1, -1, -1))
+                            n_shots = 2 * hdr_stops_val + 1
+                            # Per-shot USB overhead ~1.5 s (set_config + trigger + wait_capture_complete)
+                            hdr_duration = ramp_down + ramp_up + n_shots * 1.5 + 2.0
+                            hdr_start = totality_duration / 2 - hdr_duration / 2  # centre on MAX
+                            hdr_times = [(hdr_start, hdr_start + hdr_duration)]
+
+                        # Merge all blocked windows and sort by start time for conflict detection
+                        blocked_windows = sorted(earthshine_times + hdr_times)
                         
                         # Generate shots from C2+10s to C3-10s, tracking cumulative time to avoid overlaps
                         start_offset = 10
@@ -1551,13 +1789,15 @@ class SummaryPage(QWizardPage):
                                 if shot_end_time > totality_duration - end_buffer:
                                     break
                                 
-                                # Check if this corona shot conflicts with any earthshine shot
+                                # Check if this corona shot conflicts with any blocked window
+                                # (earthshine shots or HDR burst)
                                 conflicts = False
-                                if earthshine_times:
-                                    for es_start, es_end in earthshine_times:
-                                        # Conflict if intervals overlap
-                                        if not (shot_end_time <= es_start or current_time >= es_end):
+                                conflict_end = None
+                                if blocked_windows:
+                                    for bw_start, bw_end in blocked_windows:
+                                        if not (shot_end_time <= bw_start or current_time >= bw_end):
                                             conflicts = True
+                                            conflict_end = bw_end
                                             break
                                 
                                 # If no conflict, add the shot
@@ -1577,13 +1817,10 @@ class SummaryPage(QWizardPage):
                                     # Move to next available time slot (after current shot completes)
                                     current_time = shot_end_time
                                 else:
-                                    # Skip to after the earthshine shot
-                                    for es_start, es_end in earthshine_times:
-                                        if current_time < es_end and es_end < totality_duration - end_buffer:
-                                            current_time = es_end
-                                            break
+                                    # Skip past the conflicting window
+                                    if conflict_end is not None and conflict_end < totality_duration - end_buffer:
+                                        current_time = conflict_end
                                     else:
-                                        # No earthshine conflict, just move forward slightly
                                         current_time += 2.0
                                 
                                 pattern_index += 1
@@ -1698,6 +1935,26 @@ class SummaryPage(QWizardPage):
                     lines.append("# Earthshine skipped - could not verify timing")
                     lines.append("")
             
+            # HDR burst at maximum eclipse
+            if wizard.field('hdr_burst'):
+                hdr_stops = wizard.field('hdr_stops')
+                hdr_adj = get_adjusted_exposure('corona_lower', '1/60', preferred_iso, aperture,
+                                                max_iso=iso_max, min_aperture=aperture)
+                hdr_start_speed = hdr_adj[0]
+                hdr_iso = hdr_adj[1]
+                hdr_start_speed_s = parse_shutter_speed(hdr_start_speed)
+                ramp_down = sum(hdr_start_speed_s * (2 ** k) for k in range(hdr_stops + 1))
+                ramp_up = sum(hdr_start_speed_s * (2 ** k) for k in range(hdr_stops - 1, -1, -1))
+                n_shots = 2 * hdr_stops + 1
+                hdr_duration = ramp_down + ramp_up + n_shots * 1.5 + 2.0
+                offset_s = math.ceil(hdr_duration / 2)
+                offset_str = f"0:{int(offset_s // 60):02d}:{int(offset_s % 60):02d}.0"
+                lines.append("# HDR burst at maximum eclipse")
+                lines.append(f"# Fires {n_shots} shots ({hdr_stops} stops down and back from {hdr_start_speed})")
+                lines.append(f"# Estimated duration: {hdr_duration:.1f}s, starting at MAX-{offset_s}s")
+                lines.append(f'take_hdr, MAX, -, {offset_str}, {camera_name}, {hdr_start_speed}, {aperture}, {hdr_iso}, {hdr_stops}, "HDR at maximum eclipse"')
+                lines.append("")
+
             # C3 - Diamond ring and Baily's beads
             if wizard.field('diamond') or wizard.field('bailys'):
                 lines.append("# Diamond ring and Baily's beads (C3)")
@@ -1786,7 +2043,8 @@ class SEWConfigWizard(QWizard):
         self.setWindowTitle(f"Solar Eclipse Workbench Configuration Wizard v{_version}")
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setOption(QWizard.WizardOption.HaveHelpButton, False)
-        self.setMinimumSize(900, 850)
+        self.setMinimumSize(900, 900)
+        self.resize(950, 900)
         
         # Initialize configuration manager
         self.config_manager = ConfigManager()
