@@ -110,13 +110,22 @@ pip install solareclipseworkbench
 ### Installation on Windows 11
 
 - GPhoto2 is only available for Linux and macOS.  To run Solar Eclipse Workbench, wsl should be used.
-- Open a terminal in Windows
+- Open a terminal or powershell in Windows
 - Install wsl by executing the command
 
 ```bash
 wsl --install
 ```
 
+- Reboot your computer
+- Install Ubuntu 24.04 in wsl, buy opening a new terminal or powershell and executing the following command:
+
+```bash
+wsl.exe --install Ubuntu-24.04
+```
+
+- If you see any errors, make sure to check them.  One of the possible problems is that virtualization is not enabled in the BIOS.  It is important to enable this.
+  
 - Start using wsl by typing `wsl` in a new terminal.
 
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
