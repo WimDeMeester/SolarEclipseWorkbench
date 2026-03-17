@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QLabel, QLineEdit, QComboBox, QCheckBox, QRadioButton,
     QSpinBox, QDoubleSpinBox, QGroupBox, QButtonGroup, QTextEdit,
-    QFileDialog, QPushButton, QMessageBox, QWidget
+    QFileDialog, QPushButton, QMessageBox, QWidget, QScrollArea
 )
 
 from solareclipseworkbench.location_ui import ConfigManager, GeocodingWorker, GEOPY_AVAILABLE, LocationWidget
@@ -136,7 +136,16 @@ class EclipseConfigPage(QWizardPage):
         layout.addWidget(location_group)
         
         layout.addStretch()
-        self.setLayout(layout)
+        _content = QWidget()
+        _content.setLayout(layout)
+        _scroll = QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        _scroll.setWidget(_content)
+        _page_layout = QVBoxLayout()
+        _page_layout.setContentsMargins(0, 0, 0, 0)
+        _page_layout.addWidget(_scroll)
+        self.setLayout(_page_layout)
         
         # Hidden fields for registration
         self.eclipse_date_field = QLineEdit()
@@ -319,7 +328,7 @@ class EquipmentPage(QWizardPage):
         camera_name_layout = QHBoxLayout()
         camera_name_layout.addWidget(QLabel("Camera Name:"))
         self.camera_name_edit = QLineEdit()
-        self.camera_name_edit.setPlaceholderText("e.g., Canon EOS 80D, Nikon D850")
+        self.camera_name_edit.setPlaceholderText("e.g., Canon EOS 80D, Nikon D850, Sony Alpha A7")
         apply_dark_to_lineedit(self.camera_name_edit)
         # Connect textChanged to update page completeness
         self.camera_name_edit.textChanged.connect(lambda: self.completeChanged.emit())
@@ -502,7 +511,16 @@ class EquipmentPage(QWizardPage):
         layout.addWidget(sync_group)
         
         layout.addStretch()
-        self.setLayout(layout)
+        _content = QWidget()
+        _content.setLayout(layout)
+        _scroll = QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        _scroll.setWidget(_content)
+        _page_layout = QVBoxLayout()
+        _page_layout.setContentsMargins(0, 0, 0, 0)
+        _page_layout.addWidget(_scroll)
+        self.setLayout(_page_layout)
         
         # Register fields
         self.registerField("camera_name*", self.camera_name_edit)
@@ -861,6 +879,62 @@ class PhenomenaPage(QWizardPage):
         hdr_stops_widget.setLayout(hdr_stops_layout)
         phenomena_layout.addWidget(hdr_stops_widget)
 
+        # HDR starting shutter speed (auto-calculate or manual)
+        hdr_start_widget = QWidget()
+        hdr_start_layout = QHBoxLayout()
+        hdr_start_layout.setContentsMargins(20, 0, 0, 0)
+        hdr_start_layout.addWidget(QLabel("Starting shutter speed:"))
+        self.hdr_start_auto_radio = QRadioButton("Auto-calculate")
+        self.hdr_start_manual_radio = QRadioButton("Manual:")
+        self.hdr_start_auto_radio.setChecked(True)
+        self.hdr_start_auto_radio.setEnabled(False)
+        self.hdr_start_manual_radio.setEnabled(False)
+        self.hdr_start_button_group = QButtonGroup(self)
+        self.hdr_start_button_group.addButton(self.hdr_start_auto_radio)
+        self.hdr_start_button_group.addButton(self.hdr_start_manual_radio)
+        hdr_start_layout.addWidget(self.hdr_start_auto_radio)
+        hdr_start_layout.addWidget(self.hdr_start_manual_radio)
+        self.hdr_start_speed_combo = QComboBox()
+        self.hdr_start_speed_combo.addItems([
+            "1/8000", "1/6400", "1/5000", "1/4000", "1/3200", "1/2500", "1/2000",
+            "1/1600", "1/1250", "1/1000", "1/800", "1/640", "1/500", "1/400",
+            "1/320", "1/250", "1/200", "1/160", "1/125", "1/100", "1/80", "1/60",
+            "1/50", "1/40", "1/30", "1/25", "1/20", "1/15", "1/13", "1/10",
+            "1/8", "1/6", "1/5", "1/4",
+        ])
+        self.hdr_start_speed_combo.setCurrentText("1/1000")
+        self.hdr_start_speed_combo.setEnabled(False)
+        hdr_start_layout.addWidget(self.hdr_start_speed_combo)
+        hdr_start_layout.addStretch()
+        hdr_start_widget.setLayout(hdr_start_layout)
+        phenomena_layout.addWidget(hdr_start_widget)
+        self.hdr_start_auto_radio.toggled.connect(self._on_hdr_start_changed)
+
+        # HDR ISO (auto-calculate or manual)
+        hdr_iso_widget = QWidget()
+        hdr_iso_layout = QHBoxLayout()
+        hdr_iso_layout.setContentsMargins(20, 0, 0, 0)
+        hdr_iso_layout.addWidget(QLabel("ISO:"))
+        self.hdr_iso_auto_radio = QRadioButton("Auto-calculate")
+        self.hdr_iso_manual_radio = QRadioButton("Manual:")
+        self.hdr_iso_auto_radio.setChecked(True)
+        self.hdr_iso_auto_radio.setEnabled(False)
+        self.hdr_iso_manual_radio.setEnabled(False)
+        self.hdr_iso_button_group = QButtonGroup(self)
+        self.hdr_iso_button_group.addButton(self.hdr_iso_auto_radio)
+        self.hdr_iso_button_group.addButton(self.hdr_iso_manual_radio)
+        hdr_iso_layout.addWidget(self.hdr_iso_auto_radio)
+        hdr_iso_layout.addWidget(self.hdr_iso_manual_radio)
+        self.hdr_iso_combo = QComboBox()
+        self.hdr_iso_combo.addItems(["100", "200", "400", "800", "1600", "3200", "6400"])
+        self.hdr_iso_combo.setCurrentText("400")
+        self.hdr_iso_combo.setEnabled(False)
+        hdr_iso_layout.addWidget(self.hdr_iso_combo)
+        hdr_iso_layout.addStretch()
+        hdr_iso_widget.setLayout(hdr_iso_layout)
+        phenomena_layout.addWidget(hdr_iso_widget)
+        self.hdr_iso_auto_radio.toggled.connect(self._on_hdr_iso_changed)
+
         phenomena_group.setLayout(phenomena_layout)
         layout.addWidget(phenomena_group)
         
@@ -957,7 +1031,16 @@ class PhenomenaPage(QWizardPage):
         layout.addWidget(voice_group)
         
         layout.addStretch()
-        self.setLayout(layout)
+        _content = QWidget()
+        _content.setLayout(layout)
+        _scroll = QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        _scroll.setWidget(_content)
+        _page_layout = QVBoxLayout()
+        _page_layout.setContentsMargins(0, 0, 0, 0)
+        _page_layout.addWidget(_scroll)
+        self.setLayout(_page_layout)
         
         # Register fields
         self.registerField("c1_c4", self.c1_c4_check)
@@ -977,6 +1060,10 @@ class PhenomenaPage(QWizardPage):
         self.registerField("voice_basic", self.voice_basic_radio)
         self.registerField("hdr_burst", self.hdr_check)
         self.registerField("hdr_stops", self.hdr_stops_spin, "value")
+        self.registerField("hdr_start_auto", self.hdr_start_auto_radio)
+        self.registerField("hdr_start_speed", self.hdr_start_speed_combo, "currentText")
+        self.registerField("hdr_iso_auto", self.hdr_iso_auto_radio)
+        self.registerField("hdr_iso_manual", self.hdr_iso_combo, "currentText")
     
     def _on_filter_changed(self, text):
         """Enable/disable manual entry based on filter selection."""
@@ -989,9 +1076,27 @@ class PhenomenaPage(QWizardPage):
         self.voice_extended_radio.setEnabled(enabled)
 
     def _on_hdr_changed(self, state):
-        """Enable/disable HDR stops selection."""
+        """Enable/disable HDR stops, starting-speed, and ISO controls."""
         enabled = state == Qt.CheckState.Checked.value
         self.hdr_stops_spin.setEnabled(enabled)
+        self.hdr_start_auto_radio.setEnabled(enabled)
+        self.hdr_start_manual_radio.setEnabled(enabled)
+        self.hdr_start_speed_combo.setEnabled(enabled and self.hdr_start_manual_radio.isChecked())
+        self.hdr_iso_auto_radio.setEnabled(enabled)
+        self.hdr_iso_manual_radio.setEnabled(enabled)
+        self.hdr_iso_combo.setEnabled(enabled and self.hdr_iso_manual_radio.isChecked())
+
+    def _on_hdr_start_changed(self, auto_checked):
+        """Enable/disable manual shutter speed combo based on auto/manual selection."""
+        self.hdr_start_speed_combo.setEnabled(
+            not auto_checked and self.hdr_check.isChecked()
+        )
+
+    def _on_hdr_iso_changed(self, auto_checked):
+        """Enable/disable manual ISO combo based on auto/manual selection."""
+        self.hdr_iso_combo.setEnabled(
+            not auto_checked and self.hdr_check.isChecked()
+        )
 
 
 class SummaryPage(QWizardPage):
@@ -1011,7 +1116,8 @@ class SummaryPage(QWizardPage):
         
         self.summary_text = QTextEdit()
         self.summary_text.setReadOnly(True)
-        self.summary_text.setMaximumHeight(150)
+        self.summary_text.setMinimumHeight(80)
+        self.summary_text.setMaximumHeight(120)
         layout.addWidget(self.summary_text)
         
         # Preview label
@@ -1655,10 +1761,11 @@ class SummaryPage(QWizardPage):
                 beads_shutter = get_shutter('bailys_beads_c2', '1/500')
                 diamond_shutter = get_shutter('diamond_ring_c2', '1/250')
                 
-                # Determine burst parameter based on camera brand
-                is_nikon = 'nikon' in camera_name.lower()
-                beads_burst_param = 30 if is_nikon else 2  # Nikon: 30 pictures, Canon: 2 seconds
-                diamond_burst_param = 30 if is_nikon else 2
+                # Determine burst parameter based on camera brand:
+                # Sony and Nikon use number of frames; Canon uses duration in seconds.
+                is_nikon_or_sony = 'nikon' in camera_name.lower() or 'sony' in camera_name.lower()
+                beads_burst_param = 30 if is_nikon_or_sony else 2  # Nikon/Sony: 30 pictures, Canon: 2 seconds
+                diamond_burst_param = 30 if is_nikon_or_sony else 2
                 
                 # Start beads burst 1s earlier, diamond ring 1s later to avoid overlap (each burst ~2s + 3s gap)
                 lines.append(f'take_burst, C2, -, 0:00:08.0, {camera_name}, {beads_shutter}, {aperture}, {preferred_iso}, {beads_burst_param}, "Pre-C2 beads"')
@@ -1740,7 +1847,11 @@ class SummaryPage(QWizardPage):
                         hdr_times = []
                         if wizard.field('hdr_burst'):
                             hdr_stops_val = wizard.field('hdr_stops')
-                            hdr_start_speed_s = parse_shutter_speed(corona_lower[0])
+                            if wizard.field('hdr_start_auto'):
+                                hdr_excl_speed_str = corona_lower[0]
+                            else:
+                                hdr_excl_speed_str = wizard.field('hdr_start_speed')
+                            hdr_start_speed_s = parse_shutter_speed(hdr_excl_speed_str)
                             # Sum actual shutter-open times: ramp down (start→slowest) then up
                             ramp_down = sum(hdr_start_speed_s * (2 ** k) for k in range(hdr_stops_val + 1))
                             ramp_up = sum(hdr_start_speed_s * (2 ** k) for k in range(hdr_stops_val - 1, -1, -1))
@@ -1938,10 +2049,15 @@ class SummaryPage(QWizardPage):
             # HDR burst at maximum eclipse
             if wizard.field('hdr_burst'):
                 hdr_stops = wizard.field('hdr_stops')
-                hdr_adj = get_adjusted_exposure('corona_lower', '1/60', preferred_iso, aperture,
-                                                max_iso=iso_max, min_aperture=aperture)
-                hdr_start_speed = hdr_adj[0]
-                hdr_iso = hdr_adj[1]
+                if wizard.field('hdr_start_auto'):
+                    hdr_adj = get_adjusted_exposure('corona_lower', '1/60', preferred_iso, aperture,
+                                                    max_iso=iso_max, min_aperture=aperture)
+                    hdr_start_speed = hdr_adj[0]
+                    hdr_iso_auto = hdr_adj[1]
+                else:
+                    hdr_start_speed = wizard.field('hdr_start_speed')
+                    hdr_iso_auto = preferred_iso
+                hdr_iso = int(wizard.field('hdr_iso_manual')) if not wizard.field('hdr_iso_auto') else hdr_iso_auto
                 hdr_start_speed_s = parse_shutter_speed(hdr_start_speed)
                 ramp_down = sum(hdr_start_speed_s * (2 ** k) for k in range(hdr_stops + 1))
                 ramp_up = sum(hdr_start_speed_s * (2 ** k) for k in range(hdr_stops - 1, -1, -1))
@@ -1961,10 +2077,11 @@ class SummaryPage(QWizardPage):
                 diamond_c3_shutter = get_shutter('diamond_ring_c3', '1/250')
                 beads_c3_shutter = get_shutter('bailys_beads_c3', '1/500')
                 
-                # Determine burst parameter based on camera brand
-                is_nikon = 'nikon' in camera_name.lower()
-                diamond_burst_param = 30 if is_nikon else 2  # Nikon: 30 pictures, Canon: 2 seconds
-                beads_burst_param = 30 if is_nikon else 2
+                # Determine burst parameter based on camera brand:
+                # Sony and Nikon use number of frames; Canon uses duration in seconds.
+                is_nikon_or_sony = 'nikon' in camera_name.lower() or 'sony' in camera_name.lower()
+                diamond_burst_param = 30 if is_nikon_or_sony else 2  # Nikon/Sony: 30 pictures, Canon: 2 seconds
+                beads_burst_param = 30 if is_nikon_or_sony else 2
                 
                 # Start diamond ring 1s earlier, beads burst 1s later to avoid overlap (each burst ~2s + 3s gap)
                 lines.append(f'take_burst, C3, +, 0:00:01.0, {camera_name}, {diamond_c3_shutter}, {aperture}, {preferred_iso}, {diamond_burst_param}, "C3 diamond ring"')
@@ -2043,8 +2160,8 @@ class SEWConfigWizard(QWizard):
         self.setWindowTitle(f"Solar Eclipse Workbench Configuration Wizard v{_version}")
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setOption(QWizard.WizardOption.HaveHelpButton, False)
-        self.setMinimumSize(900, 900)
-        self.resize(950, 900)
+        self.setMinimumSize(900, 620)
+        self.resize(950, 850)
         
         # Initialize configuration manager
         self.config_manager = ConfigManager()

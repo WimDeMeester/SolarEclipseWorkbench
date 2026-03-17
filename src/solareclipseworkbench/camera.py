@@ -204,7 +204,14 @@ class GPhotoCameraAdapter(BaseCamera):
     def __init__(self, gp_camera, name: str):
         super().__init__(name=name)
         self._camera = gp_camera
-        self.vendor = 'Canon' if 'Canon' in name else ('Nikon' if 'Nikon' in name else None)
+        if 'Canon' in name:
+            self.vendor = 'Canon'
+        elif 'Nikon' in name:
+            self.vendor = 'Nikon'
+        elif 'Sony' in name:
+            self.vendor = 'Sony'
+        else:
+            self.vendor = None
         logging.debug('GPhotoCameraAdapter created for %s, vendor=%s', name, self.vendor)
         # camera returned by get_camera() is already initialised
         self._connected = True
@@ -249,6 +256,66 @@ class NikonCamera(GPhotoCameraAdapter):
         super().__init__(gp_camera, name)
         self.vendor = 'Nikon'
 
+
+class SonyCamera(GPhotoCameraAdapter):
+    """Adapter specialized for Sony cameras (Alpha DSLR/mirrorless series).
+
+    Sony cameras exposed via gphoto2 use PTP/MTP and share many widget
+    names with Nikon (e.g. ``expprogram``, ``f-number``, ``autoiso``) but
+    differ in drive/capture-mode widget values and burst triggering.
+    """
+
+    def __init__(self, gp_camera, name: str):
+        super().__init__(gp_camera, name)
+        self.vendor = 'Sony'
+
+
+
+
+def _raise_camera_init_error(camera_name: str, error: Exception) -> None:
+    """Raise a CameraError with an actionable message for camera initialisation failures.
+
+    Error -53 (GP_ERROR_IO_USB_CLAIM) means another process holds exclusive USB access to
+    the device.  Common causes and fixes:
+
+    * **Windows / WSL**: Windows keeps the Microsoft PTP/WIA driver active even after
+      ``usbipd attach``.  You must replace that driver with WinUSB so that libusb (and
+      therefore gphoto2 inside WSL) can claim the device:
+        1. Download and run **Zadig** (https://zadig.akeo.ie) on the Windows host.
+        2. Select the camera in the device list (it may show as "MTP USB Device" or the
+           camera model name).
+        3. Choose **WinUSB** as the target driver and click *Replace Driver*.
+        4. Detach and re-attach the camera in usbipd:
+               usbipd detach --busid <busid>
+               usbipd attach --wsl --busid <busid>
+      Sony cameras must also have **PC Remote** mode enabled on the camera itself:
+      Menu → Network → PC Remote Settings → PC Remote → On.
+
+    * **macOS**: ``ptpcamerad`` / ``PTPCamera`` grabs the device immediately.  Quit
+      Image Capture and Sony Imaging Edge, then:
+          sudo pkill -9 PTPCamera
+
+    * **Linux**: A stale gphoto2 process or gvfs-gphoto2-volume-monitor may hold the
+      device.  Check with ``gphoto2 --auto-detect`` and kill conflicting processes.
+    """
+    code = getattr(error, 'code', None)
+    if code == -53:
+        sony_note = (
+            "\nNOTE: Sony cameras must have PC Remote mode enabled on the camera: "
+            "Menu → Network → PC Remote Settings → PC Remote → On."
+            if 'Sony' in camera_name else ''
+        )
+        raise CameraError(
+            f"Cannot claim USB device for '{camera_name}' (gphoto2 error -53 — device busy).\n"
+            "On Windows/WSL: run Zadig on the Windows host, select the camera, switch the\n"
+            "driver to WinUSB, then re-run: usbipd detach && usbipd attach --wsl.\n"
+            "On macOS: quit Image Capture / Sony Imaging Edge, then: sudo pkill -9 PTPCamera.\n"
+            "On Linux: check for conflicting processes with: gphoto2 --auto-detect"
+            + sony_note
+        ) from error
+    raise CameraError(
+        f"Could not initialise camera '{camera_name}': {error}"
+    ) from error
 
 
 def _drain_camera_events(target, context, timeout_ms: int = 200, max_events: int = 50) -> None:
@@ -379,6 +446,20 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
             except gphoto2.GPhoto2Error as e:
                 logging.warning('Could not ensure Nikon single-frame mode before take_picture: %s', e)
 
+    # For Sony cameras, ensure single-frame capture mode is active before taking
+    # a single picture; __adapt_camera_settings already queues capturemode=0 in
+    # the same set_config batch, so this is just a safety belt for models whose
+    # capturemode widget was not writable in the first batch.
+    if getattr(camera, 'vendor', None) == 'Sony':
+        target = camera._camera if hasattr(camera, '_camera') else camera
+        try:
+            capture_mode_widget = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
+            gp.gp_widget_set_value(capture_mode_widget, 0)  # 0 = Single
+            _set_gp_config(camera, config, context)
+            logging.debug('Ensured Sony capturemode is Single (0) before take_picture')
+        except gphoto2.GPhoto2Error as e:
+            logging.warning('Could not ensure Sony single-frame mode before take_picture: %s', e)
+
     target = camera._camera if hasattr(camera, '_camera') else camera
 
     # Fire the shutter via trigger_capture (PTP InitiateCapture).  This is the
@@ -440,6 +521,23 @@ def __adapt_camera_settings(camera, camera_settings):
             logging.debug('Queued Canon drivemode=Single for next set_config')
         except gphoto2.GPhoto2Error:
             pass  # Not available on all bodies — safe to skip
+    elif vendor == 'Sony':
+        # Sony Alpha cameras use 'expprogram' with string value "M" for Manual,
+        # matching the display value rather than a numeric code.
+        try:
+            exp_program = gp.check_result(gp.gp_widget_get_child_by_name(config, 'expprogram'))
+            gp.gp_widget_set_value(exp_program, "M")
+            logging.debug('Queued Sony expprogram=M (Manual) for next set_config')
+        except gphoto2.GPhoto2Error as e:
+            logging.warning('Could not queue Sony expprogram: %s', e)
+        # Ensure single-frame capture mode so burst settings from a previous
+        # take_burst call do not carry over to single shots.
+        try:
+            capture_mode_w = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
+            gp.gp_widget_set_value(capture_mode_w, 0)  # 0 = Single
+            logging.debug('Queued Sony capturemode=Single(0) for next set_config')
+        except gphoto2.GPhoto2Error:
+            pass  # Not all Sony bodies expose this widget — safe to skip
 
     # --- Step 2: mutate ISO and shutter speed in memory, push all in one round-trip ---
     # This single set_config also delivers the exposure-mode change from step 1.
@@ -451,6 +549,17 @@ def __adapt_camera_settings(camera, camera_settings):
                 gp.check_result(gp.gp_widget_get_child_by_name(config, 'autoiso')), "Off")
         except gphoto2.GPhoto2Error as e:
             logging.debug('Could not disable auto ISO: %s', e)
+    elif vendor == 'Sony':
+        # Disable Auto ISO on Sony cameras so the manually programmed ISO is used.
+        try:
+            gp.gp_widget_set_value(
+                gp.check_result(gp.gp_widget_get_child_by_name(config, 'autoiso')), "0")
+        except gphoto2.GPhoto2Error:
+            try:
+                gp.gp_widget_set_value(
+                    gp.check_result(gp.gp_widget_get_child_by_name(config, 'autoiso')), "Off")
+            except gphoto2.GPhoto2Error as e:
+                logging.debug('Could not disable Sony auto ISO: %s', e)
 
     gp.gp_widget_set_value(
         gp.check_result(gp.gp_widget_get_child_by_name(config, 'iso')), str(camera_settings.iso))
@@ -469,7 +578,7 @@ def __adapt_camera_settings(camera, camera_settings):
             gp.gp_widget_set_value(
                 gp.check_result(gp.gp_widget_get_child_by_name(config, 'aperture')),
                 str(camera_settings.aperture))
-        elif vendor == 'Nikon':
+        elif vendor in ('Nikon', 'Sony'):
             gp.gp_widget_set_value(
                 gp.check_result(gp.gp_widget_get_child_by_name(config, 'f-number')),
                 str(camera_settings.aperture))
@@ -585,6 +694,43 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
             logging.debug('Reset Nikon burstnumber to 1 after burst')
         except gphoto2.GPhoto2Error as e:
             logging.warning('Could not reset Nikon burstnumber to 1 after burst: %s', e)
+    elif getattr(camera, 'vendor', None) == 'Sony':
+        # Sony burst: enable continuous capture mode, fire N gp_camera_trigger_capture
+        # calls (duration = number of frames), then reset to single-shot mode.
+        n_frames = max(1, int(round(duration)))
+        target = camera._camera if hasattr(camera, '_camera') else camera
+
+        # Switch to continuous capture mode
+        try:
+            capture_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
+            gp.gp_widget_set_value(capture_mode, 1)  # 1 = Continuous on most Sony bodies
+            _set_gp_config(camera, config, context)
+            logging.debug('Set Sony capturemode to Continuous (1) for burst')
+        except gphoto2.GPhoto2Error as e:
+            logging.warning('Could not set Sony capturemode to Continuous: %s', e)
+
+        # Fire N individually-triggered captures
+        for i in range(n_frames):
+            try:
+                gp.check_result(gp.gp_camera_trigger_capture(target, context))
+                logging.debug('Sony burst: triggered capture %d/%d', i + 1, n_frames)
+                _wait_for_capture_complete(target, context)
+            except gphoto2.GPhoto2Error as e:
+                logging.warning('Sony burst: capture %d/%d failed: %s', i + 1, n_frames, e)
+                try:
+                    camera.capture(gp.GP_CAPTURE_IMAGE, context)
+                except Exception:
+                    logging.exception('Sony burst: GP_CAPTURE_IMAGE fallback also failed at frame %d', i + 1)
+
+        # Reset to single-frame mode
+        config_reset = gp.check_result(gp.gp_camera_get_config(target, context))
+        try:
+            capture_mode_reset = gp.check_result(gp.gp_widget_get_child_by_name(config_reset, 'capturemode'))
+            gp.gp_widget_set_value(capture_mode_reset, 0)  # 0 = Single
+            _set_gp_config(camera, config_reset, context)
+            logging.debug('Reset Sony capturemode to Single (0) after burst')
+        except gphoto2.GPhoto2Error as e:
+            logging.warning('Could not reset Sony capturemode to Single after burst: %s', e)
 
 
 @_serialised_on_camera
@@ -903,7 +1049,11 @@ def get_camera(camera_name: str):
     # Initialize the camera
     try:
         camera.init(context)
+    except gphoto2.GPhoto2Error as e:
+        _raise_camera_init_error(camera_name, e)
 
+    # Post-init configuration (capture target, drive mode)
+    try:
         # find the capture target config item (to save to the memory card)
         config = gp.check_result(gp.gp_camera_get_config(camera, context))
         capture_target = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturetarget'))
@@ -925,8 +1075,7 @@ def get_camera(camera_name: str):
             # drivemode widget doesn't exist or value not supported - this is OK for many cameras
             logging.debug('Could not set drivemode for %s (this is normal for some camera models): %s', camera_name, e)
     except gphoto2.GPhoto2Error as e:
-        logging.exception('gphoto2 error while initializing camera %s: %s', camera_name, e)
-        # continue and attempt to wrap camera object anyway
+        logging.warning('Post-init config failed for %s (continuing): %s', camera_name, e)
 
     # Wrap the gphoto camera in a vendor-aware adapter
     if camera is None:
@@ -939,6 +1088,9 @@ def get_camera(camera_name: str):
     elif "Nikon" in camera_name:
         logging.debug('Wrapping camera %s as NikonCamera', camera_name)
         return NikonCamera(camera, camera_name)
+    elif "Sony" in camera_name:
+        logging.debug('Wrapping camera %s as SonyCamera', camera_name)
+        return SonyCamera(camera, camera_name)
     else:
         logging.debug('Wrapping camera %s as generic GPhotoCameraAdapter', camera_name)
         return GPhotoCameraAdapter(camera, camera_name)
@@ -981,7 +1133,11 @@ def get_camera_by_port(model_name: str, port: str, alias: Optional[str] = None) 
 
     try:
         camera.init(context)
+    except gphoto2.GPhoto2Error as e:
+        _raise_camera_init_error(model_name, e)
 
+    # Post-init configuration (capture target, drive mode)
+    try:
         config = gp.check_result(gp.gp_camera_get_config(camera, context))
         capture_target = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturetarget'))
         value = gp.check_result(gp.gp_widget_get_choice(capture_target, 1))
@@ -996,7 +1152,7 @@ def get_camera_by_port(model_name: str, port: str, alias: Optional[str] = None) 
         except gphoto2.GPhoto2Error as e:
             logging.debug('Could not set drivemode for %s: %s', display_name, e)
     except gphoto2.GPhoto2Error as e:
-        logging.exception('gphoto2 error while initializing camera %s at %s: %s', model_name, port, e)
+        logging.warning('Post-init config failed for %s (continuing): %s', display_name, e)
 
     if camera is None:
         raise CameraError(f'Could not create camera object for {model_name} at {port}')
@@ -1007,6 +1163,9 @@ def get_camera_by_port(model_name: str, port: str, alias: Optional[str] = None) 
     elif "Nikon" in model_name:
         logging.debug('Wrapping camera %s as NikonCamera (alias=%s)', model_name, alias)
         return NikonCamera(camera, display_name)
+    elif "Sony" in model_name:
+        logging.debug('Wrapping camera %s as SonyCamera (alias=%s)', model_name, alias)
+        return SonyCamera(camera, display_name)
     else:
         logging.debug('Wrapping camera %s as GPhotoCameraAdapter (alias=%s)', model_name, alias)
         return GPhotoCameraAdapter(camera, display_name)
@@ -1053,14 +1212,33 @@ def get_free_space(camera: Camera) -> float:
     except gphoto2.GPhoto2Error as e:
         # Error -53 means the OS has reclaimed the USB device (common on macOS when
         # ptpcamerad / Image Capture grabs the camera after gphoto2 releases it).
-        # There is no point retrying or reinitialising – both will fail the same way.
-        # Return the previously cached value if available, otherwise -1 as a sentinel.
         if getattr(e, 'code', None) == -53:
-            cached = getattr(camera, '_cached_free_space', -1.0)
-            logging.debug(
-                'Camera %s USB reclaimed by OS (-53), returning cached free space %.1f GB',
-                getattr(camera, 'name', str(camera)), cached)
-            return cached
+            cached = getattr(camera, '_cached_free_space', None)
+            if cached is not None:
+                # Camera was working before; return the last known value.
+                logging.debug(
+                    'Camera %s USB reclaimed by OS (-53), returning cached free space %.1f GB',
+                    getattr(camera, 'name', str(camera)), cached)
+                return cached
+            # No cached value: this is the very first poll.  Attempt one reinitialisation —
+            # on Sony in PC Remote mode gphoto2 can reclaim the device from ptpcamerad
+            # because the camera keeps its side of the PTP session open.
+            logging.warning(
+                'Camera %s: free-space query hit -53 with no prior cache; attempting reinit',
+                getattr(camera, 'name', str(camera)))
+            try:
+                if hasattr(camera, 'name'):
+                    new_cam = get_camera(camera.name)
+                    result = round(new_cam.get_storageinfo()[0].freekbytes / 1024 / 1024, 1)
+                    try:
+                        camera._cached_free_space = result
+                    except Exception:
+                        pass
+                    return result
+            except Exception:
+                logging.warning('Reinit also failed for free-space query on %s; returning -1.0',
+                                getattr(camera, 'name', str(camera)))
+            return -1.0
         # For other errors, try to reinitialise the camera once and retry
         try:
             if hasattr(camera, 'name'):
@@ -1085,6 +1263,20 @@ def get_free_space(camera: Camera) -> float:
             return round(stor[0].freekbytes / 1024 / 1024, 1)
         except Exception:
             raise CameraError(f"Could not read storage info for {getattr(camera, 'name', camera)}: {e}") from e
+    except IndexError:
+        # get_storageinfo() returned an empty list — common on Sony via PTP during
+        # the initial handshake or when ptpcamerad briefly relinquishes the device.
+        # Return the last cached value if we have one, otherwise -1.0.
+        cached = getattr(camera, '_cached_free_space', None)
+        if cached is not None:
+            logging.debug(
+                'Camera %s: get_storageinfo() returned empty list; returning cached %.1f GB',
+                getattr(camera, 'name', str(camera)), cached)
+            return cached
+        logging.warning(
+            'Camera %s: get_storageinfo() returned empty list with no cache; returning -1.0',
+            getattr(camera, 'name', str(camera)))
+        return -1.0
     except Exception:
         # For virtual or non-gphoto cameras return a large default value
         if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
@@ -1141,6 +1333,18 @@ def get_space(camera: Camera) -> float:
             return round(stor[0].capacitykbytes / 1024 / 1024, 1)
         except Exception:
             raise CameraError(f"Could not read storage capacity for {getattr(camera, 'name', camera)}: {e}") from e
+    except IndexError:
+        # get_storageinfo() returned an empty list — camera not yet ready to report storage.
+        cached = getattr(camera, '_cached_total_space', None)
+        if cached is not None:
+            logging.debug(
+                'Camera %s: get_storageinfo() returned empty list; returning cached total %.1f GB',
+                getattr(camera, 'name', str(camera)), cached)
+            return cached
+        logging.warning(
+            'Camera %s: get_storageinfo() returned empty list with no cache; returning -1.0',
+            getattr(camera, 'name', str(camera)))
+        return -1.0
     except Exception:
         # For virtual or non-gphoto cameras return a large default value
         if isinstance(camera, BaseCamera) and not hasattr(camera, '_camera'):
@@ -1165,6 +1369,13 @@ def get_shooting_mode(camera_name: str, camera: Camera) -> str:
         if vendor == 'Canon':
             return camera.get_config().get_child_by_name('autoexposuremodedial').get_value()
         elif vendor == 'Nikon':
+            mode = camera.get_config().get_child_by_name('expprogram').get_value()
+            if mode == "M":
+                return "Manual"
+            else:
+                return mode
+        elif vendor == 'Sony':
+            # Sony uses 'expprogram' with string value "M" for Manual
             mode = camera.get_config().get_child_by_name('expprogram').get_value()
             if mode == "M":
                 return "Manual"
@@ -1216,10 +1427,21 @@ def get_battery_level(camera: Camera) -> str:
         return camera.get_config().get_child_by_name('batterylevel').get_value()
     except gphoto2.GPhoto2Error as e:
         if getattr(e, 'code', None) == -53:
-            # Camera is still busy (USB claimed) after a recent capture - this is normal
-            logging.debug('Camera %s busy (USB claimed), skipping battery read', getattr(camera, 'name', str(camera)))
+            # -53: another process (e.g. ptpcamerad on macOS) has reclaimed the USB device.
+            # Attempt one reinitialisation — on Sony in PC Remote mode gphoto2 can win the
+            # device back because the camera keeps its side of the PTP session open.
+            logging.debug('Camera %s busy (USB claimed, -53); attempting reinit for battery read',
+                          getattr(camera, 'name', str(camera)))
+            try:
+                if hasattr(camera, 'name'):
+                    new_cam = get_camera(camera.name)
+                    return new_cam.get_config().get_child_by_name('batterylevel').get_value()
+            except Exception:
+                logging.debug('Reinit also failed for battery read on %s; returning Unknown',
+                              getattr(camera, 'name', str(camera)))
         else:
-            logging.warning('gphoto2 error reading battery level for %s: %s', getattr(camera, 'name', str(camera)), e)
+            logging.warning('gphoto2 error reading battery level for %s: %s',
+                            getattr(camera, 'name', str(camera)), e)
         # Return unknown battery level to avoid crashing the UI
         return "Unknown"
     except Exception:
@@ -1462,6 +1684,18 @@ def get_camera_dict(is_simulator: bool = False, alias_map: Optional[dict] = None
                 key,
             )
         cameras[key] = cam
+
+        # Also register the camera under its base model name without any parenthetical
+        # suffix (e.g. "(PC Control)", "(PTP)", "(MTP)") so that scripts written with
+        # the plain model name still work even though gphoto2 appends the suffix.
+        import re as _re
+        bare_key = _re.sub(r'\s*\([^)]*\)\s*$', '', key).strip()
+        if bare_key and bare_key != key and bare_key not in cameras:
+            cameras[bare_key] = cam
+            logging.debug(
+                'Camera "%s" also registered under bare key "%s"',
+                key, bare_key,
+            )
 
     return cameras
 

@@ -1,43 +1,57 @@
-[tool.poetry]
+[project]
 name = "solareclipseworkbench"
 version = "1.6.0"
 description = "Tools to photograph solar eclipses"
-authors = ["Sara Regibo <sararegibo@gmail.com>", "Wim De Meester <deepskywim@gmail.com"]
-license = "GPL-3.0-or-later"
 readme = "README.md"
-repository = "https://github.com/AstroWimSara/SolarEclipseWorkbench"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+    { name = "Sara Regibo", email = "sararegibo@gmail.com" },
+    { name = "Wim De Meester", email = "deepskywim@gmail.com" },
+]
 keywords = ["astronomy", "photography", "solar eclipse"]
-include = [
-    "solareclipseworkbench/sound/**",
-    "solareclipseworkbench/example_scripts/**",
-    "solareclipseworkbench/img/**",
+requires-python = ">=3.11"
+dependencies = [
+    "astropy>=7.0.0",
+    "geopandas>=0.14.2",
+    "matplotlib>=3.8.2",
+    "gphoto2>=2.6.0",
+    "apscheduler>=3.10.4",
+    "geodatasets>=2023.12.0",
+    "jplephem>=2.21",
+    "skyfield>=1.47",
+    "skyfield-data>=5.0.0",
+    "timezonefinder>=6.2.0",
+    "playsound3>=3.2.4",
+    "pyqt6>=6.6.1",
+    "pytz>=2025",
+    "pyserial>=3.5",
+    "geopy>=2.4.1",
+    "requests>=2.31.0",
 ]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-astropy = "^7.0.0"
-geopandas = "^0.14.2"
-matplotlib = "^3.8.2"
-gphoto2 = "^2.6.0"
-apscheduler = "^3.10.4"
-geodatasets = "^2023.12.0"
-jplephem = "^2.21"
-skyfield = "^1.47"
-skyfield-data = "^5.0.0"
-timezonefinder = "^6.2.0"
-playsound3 = "^3.2.4"
-pyqt6 = "^6.6.1"
-pytest = "^9"
-pytz = "^2025"
-pyserial = "^3.5"
-geopy = "^2.4.1"
-requests = "^2.31.0"
+[project.urls]
+Repository = "https://github.com/AstroWimSara/SolarEclipseWorkbench"
 
-[tool.poetry.scripts]
+[project.scripts]
 sew = "solareclipseworkbench.gui:main"
 sew_wizard = "solareclipseworkbench.wizard:main"
 
+[dependency-groups]
+dev = ["pytest>=9"]
+
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"solareclipseworkbench" = [
+    "sound/**",
+    "example_scripts/**",
+    "img/**",
+    "*.bsp",
+    "*.csv",
+]
 
