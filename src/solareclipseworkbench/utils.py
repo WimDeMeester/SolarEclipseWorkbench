@@ -177,6 +177,16 @@ def schedule_command(scheduler: BackgroundScheduler, reference_moments: dict, cm
                 elif func_name == "sync_cameras":
                     args = [controller]
             except KeyError:
+                camera_name_in_script = args[0].strip() if args else '(unknown)'
+                available = list(cameras.keys()) if cameras else []
+                logging.warning(
+                    'schedule_command: camera "%s" not found in camera dict.  '
+                    'Available cameras: %s.  '
+                    'Check that the camera name in the script exactly matches the '
+                    'name shown in the Camera(s) overview (or the alias you configured '
+                    'in the wizard).  This command will be skipped.',
+                    camera_name_in_script, available,
+                )
                 return
         else:
             return

@@ -21,7 +21,7 @@ import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction, QDoubleValidator, QIntValidator, QCloseEvent
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
-    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QTableView
+    QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QTableView, QMessageBox
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -1023,23 +1023,62 @@ class SolarEclipseController(Observer):
             filename, _ = QFileDialog.getOpenFileName(None, "QFileDialog.getOpenFileName()", "",
                                                       "All Files (*);;Python Files (*.py);;Text Files (*.txt)")
 
-            if self.model.reference_moments and os.path.exists(filename):
-                try:
-                    from solareclipseworkbench.utils import observe_solar_eclipse
-                    self.scheduler: BackgroundScheduler \
-                        = observe_solar_eclipse(self.model.reference_moments, filename,
-                                                self.model.camera_overview.camera_overview_dict, self,
-                                                self.sim_reference_moment, self.sim_offset_minutes)
+            if not filename:
+                return  # user cancelled the dialog
 
-                    self.jobs_model = JobsTableModel(self.scheduler, self)
-                    self.view.jobs_table.setModel(self.jobs_model)
-                    self.jobs_model.add_observer(self.view.jobs_table)
-                    self.view.jobs_table.resizeColumnsToContents()
+            if not self.model.reference_moments:
+                QMessageBox.warning(
+                    self.view,
+                    "Reference Moments Not Set",
+                    "No eclipse reference moments have been calculated yet.\n\n"
+                    "Before loading a script, please:\n"
+                    "  1. Set the observation location (Location button)\n"
+                    "  2. Set the eclipse date (Date button)\n"
+                    "  3. Click \"Reference moments\" to compute contact times\n\n"
+                    "Then try loading the script again."
+                )
+                return
 
-                    self.view.camera_action.setDisabled(True)
+            if not os.path.exists(filename):
+                QMessageBox.warning(
+                    self.view,
+                    "File Not Found",
+                    f"The selected file does not exist:\n{filename}"
+                )
+                return
 
-                except IndexError:
-                    LOGGER.warning(f"File {filename} does not contain scheduled jobs")
+            try:
+                from solareclipseworkbench.utils import observe_solar_eclipse
+                self.scheduler: BackgroundScheduler \
+                    = observe_solar_eclipse(self.model.reference_moments, filename,
+                                            self.model.camera_overview.camera_overview_dict, self,
+                                            self.sim_reference_moment, self.sim_offset_minutes)
+
+                self.jobs_model = JobsTableModel(self.scheduler, self)
+                self.view.jobs_table.setModel(self.jobs_model)
+                self.jobs_model.add_observer(self.view.jobs_table)
+                self.view.jobs_table.resizeColumnsToContents()
+
+                self.view.camera_action.setDisabled(True)
+
+                n_jobs = len(self.scheduler.get_jobs())
+                if n_jobs == 0:
+                    cam_keys = list(
+                        (self.model.camera_overview.camera_overview_dict or {}).keys()
+                    )
+                    QMessageBox.warning(
+                        self.view,
+                        "No Jobs Scheduled",
+                        f"The script was loaded but no commands were scheduled.\n\n"
+                        f"This usually means the camera name in the script does not match "
+                        f"the name of a detected camera.\n\n"
+                        f"Detected cameras: {cam_keys or '(none — click Camera(s) first)'}\n\n"
+                        f"Check that each camera name in the script exactly matches one of "
+                        f"the names shown in the Camera(s) overview table above."
+                    )
+
+            except IndexError:
+                LOGGER.warning(f"File {filename} does not contain scheduled jobs")
 
         elif text == "Stop":
             try:

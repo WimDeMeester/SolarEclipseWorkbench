@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.7.0] - 2026-03-17
+
+### Added
+- **Sony camera support**: Sony Alpha DSLR and mirrorless cameras (e.g. ILCE-7M3, ILCE-7RM5,
+  A7 IV, A9 III) are now fully supported alongside Canon and Nikon.
+
+  A new `SonyCamera` adapter class (`camera.py`) wraps the gphoto2 camera object and sets
+  `vendor = 'Sony'`, enabling all vendor-specific branches in the capture pipeline.
+
+  Vendor-specific behaviour for Sony:
+  - **Exposure mode**: `expprogram` widget is set to `"M"` (Manual string value, as used by
+    Sony Alpha bodies — distinct from Nikon's numeric `"1"` code).
+  - **Auto-ISO**: disabled via the `autoiso` widget before every capture so that the
+    manually programmed ISO value is actually used.
+  - **Aperture**: set via the `f-number` widget (same as Nikon; Canon uses `aperture`).
+  - **Single-frame guard**: `capturemode` is reset to `0` (Single) at the start of each
+    `take_picture` call so that leftover burst settings from a previous `take_burst` do not
+    cause unwanted continuous shooting.
+  - **Burst mode** (`take_burst`): switches `capturemode` to `1` (Continuous), fires
+    *N* `gp_camera_trigger_capture` calls (burst parameter = number of frames, same
+    convention as Nikon), then resets `capturemode` to `0` (Single) afterwards.
+  - **Shooting mode query** (`get_shooting_mode`): reads `expprogram` and maps `"M"` →
+    `"Manual"`, consistent with the Nikon path.
+
+  `get_camera()` and `get_camera_by_port()` both now wrap Sony model names in `SonyCamera`
+  (detection: `"Sony"` in model name string).
+
+- **Example script for Sony cameras** (`example_scripts/testSony.txt`): demonstrates
+  `take_picture`, `take_burst` (with frame-count parameter), and `take_hdr` for a
+  `Sony ILCE-7M3` across all four contacts and totality.
+
+- **Wizard: configurable HDR starting shutter speed**: When the "HDR burst at maximum
+  eclipse (`take_hdr`)" option is enabled on the *Phenomena* page, a new "Starting shutter
+  speed" row now appears beneath the stops spinner.  Two modes are available:
+  - **Auto-calculate** (default): the fastest speed in the HDR ramp is derived
+    automatically from the inner-corona exposure calculation, preserving the existing
+    behaviour.
+  - **Manual**: a drop-down combo box lets the user pick any standard shutter speed from
+    `1/8000` down to `1/4`.  The selected speed is used directly as the starting (fastest)
+    speed passed to the generated `take_hdr` command.
+
+  Both the HDR exclusion window (used to block out corona shots around MAX) and the
+  generated `take_hdr` script line honour the chosen speed.  The combo box and radio buttons
+  are disabled while the HDR checkbox is unchecked, and the combo box is additionally
+  disabled while "Auto-calculate" is selected.
+
+### Changed
+- **Wizard burst parameter now includes Sony**: The two `take_burst` lines generated for
+  Baily's beads and diamond-ring events (around C2 and C3) previously used a duration of
+  `2` seconds for Canon and `30` frames for Nikon. Sony is now treated the same as Nikon
+  (frame-count convention), so the generated parameter is `30` frames when the camera name
+  contains `"sony"`.
+- **Wizard camera name placeholder** updated from `"e.g., Canon EOS 80D, Nikon D850"` to
+  `"e.g., Canon EOS 80D, Nikon D850, Sony Alpha A7"` to make Sony support discoverable.
+- **`take_hdr` compatibility note updated**: documentation and comments now reflect that
+  `take_hdr` works on Canon, Nikon, *and* Sony cameras (Sony uses the same
+  `gp_camera_trigger_capture` path as Nikon).
+- **Wizard usable on 1680×1050 screens**: The wizard window minimum height was reduced from
+  900 px to 620 px and the default startup size from 900 px to 850 px tall.  The three
+  content-heavy pages (*Eclipse Configuration*, *Equipment Configuration*, *Phenomena
+  Selection*) are now wrapped in a `QScrollArea` so all content is reachable by scrolling
+  even when the window is shorter than the page content.  The horizontal scroll bar is
+  suppressed; only vertical scrolling is possible.  The summary text area on the final page
+  was also capped at a smaller maximum height so it does not consume excess vertical space.
+  All wizard navigation buttons (Next, Back, Finish, Cancel) remain fully visible at all
+  supported window sizes.
+- **Build system migrated from Poetry to uv**: `pyproject.toml` now uses standard PEP 621
+  metadata (`[project]`) with a `setuptools` build backend, replacing the previous
+  `[tool.poetry]` setup.  Developer dependencies (pytest) are declared in
+  `[dependency-groups]`.  Use `uv sync --group dev` to set up the environment and
+  `uv run sew` / `uv run sew_wizard` to run the application during development.
+
 ## [1.6.0] - 2026-03-10
 
 ### Added

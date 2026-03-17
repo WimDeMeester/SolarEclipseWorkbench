@@ -187,6 +187,30 @@ lsusb
 sudo usermod -aG plugdev $USER
 ```
 
+#### Replace the Windows USB driver with WinUSB (required for gphoto2)
+
+After attaching the camera with `usbipd`, Windows still keeps its own PTP/WIA driver active.
+gphoto2 uses **libusb** and cannot claim a device that the Microsoft PTP driver already holds — this causes the error `[-53] Could not claim the USB device`.
+You must replace the driver once per camera model using **Zadig**:
+
+1. Download and run **Zadig** from [https://zadig.akeo.ie](https://zadig.akeo.ie) **on the Windows host** (not inside WSL).
+2. Connect the camera and attach it to WSL with `usbipd attach --wsl --busid <busid>`.
+3. In Zadig, open *Options → List All Devices* and select the camera (it may appear as "MTP USB Device" or the camera model name).
+4. In the driver drop-down on the right, select **WinUSB**.
+5. Click **Replace Driver** and wait for it to finish.
+6. Detach and re-attach the camera so the new driver is used:
+
+```powershell
+usbipd detach --busid <busid>
+usbipd attach --wsl --busid <busid>
+```
+
+You only need to do this once; the WinUSB driver persists across reboots for that USB device.
+
+> **Sony Alpha cameras** additionally require **PC Remote** mode to be active on the camera itself before gphoto2 can communicate with it:
+> Camera Menu → Network → PC Remote Settings → PC Remote → **On**
+> The camera will show `(PC Control)` in its model name when correctly connected.
+
 ## Upgrading Solar Eclipse Workbench
 
 To upgrade Solar Eclipse Workbench to the latest version, activate your Python environment and run:
@@ -351,10 +375,10 @@ The SEW Configuration Wizard (`sew_wizard`) is a graphical step-by-step tool tha
 sew_wizard
 ```
 
-- Alternatively, if you are using the development environment with Poetry:
+- Alternatively, if you are using the development environment with uv:
 
 ```bash
-poetry run sew_wizard
+uv run sew_wizard
 ```
 
 - Or run it directly from Python:
@@ -429,6 +453,7 @@ The following cameras are tested:
 - Nikon DSC D3400
 - Nikon Z8
 - Nikon Z6iii
+- Sony ILCE-7M3 (α7 III)
 
 It is possible to take pictures in burst mode.  The speed is limited by the speed of the camera (and card).
 
@@ -454,7 +479,7 @@ Solar Eclipse Workbench can use the following commands:
 
 This command will take a picture 1 minutes and 2 seconds before first contact (C1) with the Canon EOS 80D.  The ISO will be set to 200, aperture to 8.0 and shutter speed to 1/1250s.
 
-- **take_burst**  - Set the aperture, shutter speed and ISO of the camera and take a burst of pictures during 3 seconds (for Canon, Nikon will take 3 pictures in burst mode).
+- **take_burst**  - Set the aperture, shutter speed and ISO of the camera and take a burst of pictures during 3 seconds (for Canon; Nikon and Sony will take 3 pictures in burst mode).
 
 ```take_burst, C1, +, 0:00:08.0, Canon EOS 80D, 1/2000, 5.6, 400, 3, "Burst test"```
 
@@ -462,7 +487,7 @@ This command will take a picture 1 minutes and 2 seconds before first contact (C
 
 ```take_bracket, C1, +, 0:00:08.0, Canon EOS 80D, 1/2000, 5.6, 400, "+/- 1 2/3", "Bracket test"```
 
-- **take_hdr** - Take an HDR sequence by ramping the shutter speed from a starting (fastest) speed down by the given number of full stops and back up again, while keeping aperture and ISO fixed.  Uses `gp_camera_trigger_capture` for maximum speed so successive shots are fired without waiting for each file to be written to the card.  The shutter speed choices available on the connected camera are queried at runtime, so the sequence always stays within the actual speeds the body supports.  Works on Canon EOS and Nikon cameras.  Total shots fired: 2 × stops + 1 (the slowest exposure appears once at the midpoint).
+...**take_hdr** - Take an HDR sequence by ramping the shutter speed from a starting (fastest) speed down by the given number of full stops and back up again, while keeping aperture and ISO fixed.  Uses `gp_camera_trigger_capture` for maximum speed so successive shots are fired without waiting for each file to be written to the card.  The shutter speed choices available on the connected camera are queried at runtime, so the sequence always stays within the actual speeds the body supports.  Works on Canon EOS, Nikon, and Sony Alpha cameras.  Total shots fired: 2 × stops + 1 (the slowest exposure appears once at the midpoint).
 
   The sequence for `stops=4` starting at `1/2000` would be: `1/2000 → 1/1000 → 1/500 → 1/250 → 1/125 → 1/250 → 1/500 → 1/1000 → 1/2000` (9 shots).
 
@@ -546,11 +571,12 @@ export PATH=<location_of_homebrew_installation>/bin:$PATH
 brew install gphoto2 pkg-config gdal
 ```
 
-- Install poetry by executing the following line in the terminal
+- Install uv by executing the following line in the terminal:
 
 ```bash
-curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | python3 -
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+
 - Check out the source code:
 
 ```bash
@@ -558,21 +584,20 @@ git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
 cd SolarEclipseWorkbench
 ```
 
-- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
+- Install the python environment by executing the following command in the Solar Eclipse Workbench directory:
 
 ```bash
-poetry install
-poetry shell
-pip3 install PyObjC
+uv sync --group dev
+uv pip install PyObjC
 ```
 
 ### Installation on Ubuntu 24.04
 
-- Install poetry by executing the following line in the terminal
+- Install uv by executing the following line in the terminal:
 
 ```bash
 sudo apt install curl git gstreamer1.0-plugins-base-apps
-/usr/bin/curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | /usr/bin/python3 -
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 - Check out the source code:
@@ -582,19 +607,17 @@ git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
 cd SolarEclipseWorkbench
 ```
 
-- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
+- Install the python environment by executing the following command in the Solar Eclipse Workbench directory:
 
 ```bash
-~/.local/bin/poetry install
-~/.local/bin/poetry env activate
-# This will show the command to execute the environment.  Starts with source ~/.local/share/virtualenvs/SolarEclipseWorkbench-<hash>/bin/activate
+uv sync --group dev
 ```
 
 - Eventually, to make the sound notifications a bit faster, install pygobject:
 
 ```bash
 sudo apt install libcairo2-dev libgirepository1.0-dev gcc
-pip install pygobject
+uv pip install pygobject
 ```
 
 ### Installation on Windows 11
@@ -608,10 +631,11 @@ wsl --install
 ```
 
 - Start using wsl by typing `wsl` in a new terminal.
-- Install poetry by executing the following line in the terminal
+
+- Install uv by executing the following line in the terminal:
 
 ```bash
-curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=True/' | python3 -
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 - Check out the source code:
@@ -620,17 +644,14 @@ curl -sSL https://install.python-poetry.org | sed 's/symlinks=False/symlinks=Tru
 git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
 ```
 
-- Log out from wsl (by typing `exit`) and log in again.
-- Install the python environment by executing the following command in the Solar Eclipse Workbench directory
+- Install the python environment by executing the following command in the Solar Eclipse Workbench directory:
 
 ```bash
 cd SolarEclipseWorkbench
-~/.local/bin/poetry install
-~/.local/bin/poetry env activate
-# This will show the command to execute the environment.  Starts with source ~/.local/share/virtualenvs/SolarEclipseWorkbench-<hash>/bin/activate
+uv sync --group dev
 ```
 
-- Install needed packages
+- Install needed packages:
 
 ```bash
 sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev
@@ -640,13 +661,13 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcomm
 
 ```bash
 sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
-pip install pygobject
+uv pip install pygobject
 ```
 
 ## Run Solar Eclipse Workbench from the development environment
 
 ```bash
-~/.local/bin/poetry run python src/solareclipseworkbench/gui.py 
+uv run sew
 ```
 
 ## Create and upload a new pip package
@@ -654,8 +675,8 @@ pip install pygobject
 To create a new pip package, first change the version number in pyproject.toml and then execute the following commands in the Solar Eclipse Workbench directory:
 
 ```bash
-poetry build
-poetry publish
+uv build
+uv publish
 ```
 
 ## License
