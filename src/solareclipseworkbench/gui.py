@@ -713,12 +713,12 @@ class SolarEclipseView(QMainWindow, Observable):
         """
 
         if eclipse_type == "Partial" or eclipse_type == "Annular":
-            self.eclipse_type.setText(eclipse_type + f" eclipse ({round(magnitude, 2)})")
+            self.eclipse_type.setText(eclipse_type + f" ({round(magnitude, 2)})")
         elif eclipse_type == "No eclipse":
             self.eclipse_type.setText(eclipse_type)
         else:
             minutes, seconds = divmod(reference_moments["duration"].seconds, 60)
-            self.eclipse_type.setText(f"{eclipse_type} eclipse ({minutes}:{seconds:02})")
+            self.eclipse_type.setText(f"{eclipse_type} ({minutes}:{seconds:02})")
 
         # First contact
 
