@@ -200,7 +200,11 @@ class SolarEclipseModel:
             logging.debug('sync_camera_time: no camera overview available yet; skipping')
             return
 
+        seen_ids: set = set()
         for camera_name, camera in self.camera_overview.camera_overview_dict.items():
+            if id(camera) in seen_ids:
+                continue
+            seen_ids.add(id(camera))
             logging.info(f"Syncing time for camera {camera_name}")
             set_time(camera)
 
@@ -209,33 +213,52 @@ class SolarEclipseModel:
 
         For the camera(s) for which the focus mode and/or shooting mode is not set to 'Manual', a warning message is
         logged.
+
+        Returns:
+            List of warning strings (empty if all cameras are in Manual mode).
         """
+
+        warnings = []
 
         if not self.camera_overview or not getattr(self.camera_overview, 'camera_overview_dict', None):
             logging.debug('check_camera_state: no camera overview available yet; skipping')
-            return
+            return warnings
 
+        seen_ids: set = set()
         for camera_name, camera in self.camera_overview.camera_overview_dict.items():
+            if id(camera) in seen_ids:
+                continue
+            seen_ids.add(id(camera))
 
             # Focus mode
 
             try:
                 focus_mode = get_focus_mode(camera)
                 if focus_mode.lower() != "manual":
-                    LOGGER.warning(f"The focus mode for camera {camera_name} should be set to 'Manual' "
-                                   f"(is '{focus_mode}')")
+                    msg = (f"Focus mode for {camera_name} should be 'Manual' (currently '{focus_mode}').\n"
+                           f"Switch the lens autofocus switch to MF.")
+                    LOGGER.warning(msg)
+                    warnings.append(msg)
             except GPhoto2Error:
-                LOGGER.warning(f"The focus mode for camera {camera_name} could not be determined")
+                msg = f"Could not read focus mode for {camera_name}."
+                LOGGER.warning(msg)
+                warnings.append(msg)
 
             # Shooting mode
 
             try:
                 shooting_mode = get_shooting_mode(camera_name, camera)
                 if shooting_mode.lower() != "manual":
-                    LOGGER.warning(f"The shooting mode for camera {camera_name} should be set to 'Manual' "
-                                    f"(is '{shooting_mode}')")
+                    msg = (f"Shooting mode for {camera_name} should be 'Manual' (currently '{shooting_mode}').\n"
+                           f"Turn the camera's mode dial to M.")
+                    LOGGER.warning(msg)
+                    warnings.append(msg)
             except GPhoto2Error:
-                LOGGER.warning(f"The shooting mode for camera {camera_name} could not be determined")
+                msg = f"Could not read shooting mode for {camera_name}."
+                LOGGER.warning(msg)
+                warnings.append(msg)
+
+        return warnings
 
 
 class SolarEclipseView(QMainWindow, Observable):
@@ -388,6 +411,13 @@ class SolarEclipseView(QMainWindow, Observable):
 
         self.jobs_table = QJobsTableView()
 
+        # One-line Sony reminder banner (hidden by default; shown when a Sony camera is present)
+        self.sony_reminder_label = QLabel()
+        self.sony_reminder_label.setText("Sony users: set 'PC Remote Settings → Save Destination' to 'PC+Camera' (or 'Camera Only') to keep images on the SD card and preserve tight shot timing")
+        self.sony_reminder_label.setWordWrap(True)
+        self.sony_reminder_label.setStyleSheet('background-color: #FFF3CD; color: #856404; padding: 6px; border-radius: 4px;')
+        self.sony_reminder_label.setVisible(False)
+
         self.init_ui()
 
     def save_settings(self):
@@ -538,6 +568,8 @@ class SolarEclipseView(QMainWindow, Observable):
         scroll.setWidget(self.jobs_table)
 
         global_layout = QVBoxLayout()
+        # show reminder banner at top
+        global_layout.addWidget(self.sony_reminder_label)
         global_layout.addLayout(hbox)
 
         global_layout.addWidget(scroll)
@@ -996,24 +1028,12 @@ class SolarEclipseController(Observer):
             logging.debug('User requested Camera(s) update')
             try:
                 logging.debug('Calling model.camera_overview.update_camera_overview()')
+                # Register a callback so sync+check run after cameras are fully loaded
+                self.model.camera_overview.on_ready_callback = self._on_cameras_ready
                 self.model.camera_overview.update_camera_overview()
                 logging.debug('Returned from update_camera_overview()')
             except Exception:
                 logging.exception('Exception while updating camera overview')
-
-            try:
-                logging.debug('Calling sync_camera_time()')
-                self.sync_camera_time()
-                logging.debug('Returned from sync_camera_time()')
-            except Exception:
-                logging.exception('Exception while syncing camera time')
-
-            try:
-                logging.debug('Calling check_camera_state()')
-                self.check_camera_state()
-                logging.debug('Returned from check_camera_state()')
-            except Exception:
-                logging.exception('Exception while checking camera state')
 
         elif text == "Simulator":
             self.simulator_popup = SimulatorPopup(self)
@@ -1103,14 +1123,36 @@ class SolarEclipseController(Observer):
 
         self.model.sync_camera_time()
 
-    def check_camera_state(self):
+    def _on_cameras_ready(self):
+        """Called by CameraOverviewTableModel after camera dict is populated.
+
+        Runs sync_camera_time and check_camera_state on the GUI thread so they
+        always have access to the fully-populated camera_overview_dict.
+        """
+        try:
+            logging.debug('_on_cameras_ready: syncing camera time')
+            self.sync_camera_time()
+        except Exception:
+            logging.exception('Exception while syncing camera time')
+        try:
+            logging.debug('_on_cameras_ready: checking camera state')
+            self.check_camera_state()
+        except Exception:
+            logging.exception('Exception while checking camera state')
+
         """ Check whether the focus mode and shooting mode of all connected cameras is set to 'Manual'.
 
-        For the camera(s) for which the focus mode and/or shooting mode is not set to 'Manual', a warning message is
-        logged.
+        Shows a warning dialog for any camera that is not in Manual mode.
         """
 
-        self.model.check_camera_state()
+        warnings = self.model.check_camera_state()
+        if warnings:
+            QMessageBox.warning(
+                self.view,
+                "Camera Settings Warning",
+                "One or more cameras require attention before shooting:\n\n"
+                + "\n\n".join(f"\u26a0\ufe0f  {w}" for w in warnings)
+            )
 
     def load_settings(self):
         """ Load the UI settings.
@@ -1631,6 +1673,10 @@ class CameraOverviewTableModel(QAbstractTableModel):
         super().__init__()
 
         self.camera_overview_dict: Union[dict, None] = None
+        # Optional callable invoked on the GUI thread after camera data is applied.
+        # Set by the controller before calling update_camera_overview() so that
+        # sync_camera_time / check_camera_state run only once the dict is ready.
+        self.on_ready_callback = None
 
         self._data = pd.DataFrame(columns=[CameraOverviewTableColumnNames.CAMERA.value,
                                            CameraOverviewTableColumnNames.BATTERY_LEVEL.value,
@@ -1711,14 +1757,28 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 camera_dict = get_camera_dict(is_simulator=is_sim, alias_map=alias_map)
 
             data = []
+            seen_camera_ids: set = set()
             for camera_name, camera in camera_dict.items():
+                # Skip bare-key aliases that point to the same physical camera object
+                # already added under its full gphoto2 name (e.g. "Sony Alpha-A7r II"
+                # is a duplicate of "Sony Alpha-A7r II (Control)").
+                cam_id = id(camera)
+                if cam_id in seen_camera_ids:
+                    logging.debug('Worker: skipping duplicate alias "%s" (same camera object)', camera_name)
+                    continue
+                seen_camera_ids.add(cam_id)
                 try:
                     logging.debug('Worker: processing camera %s', camera_name)
                     battery_level = get_battery_level(camera).rstrip('%')
                     free_space_gb = get_free_space(camera)
                     total_space = get_space(camera)
-                    free_space_percentage = int(free_space_gb / total_space * 100)
-                    data.append([camera_name, str(battery_level), str(free_space_gb), str(free_space_percentage)])
+                    if free_space_gb < 0 or total_space <= 0:
+                        free_space_gb_str = 'N/A'
+                        free_space_pct_str = 'N/A'
+                    else:
+                        free_space_gb_str = str(free_space_gb)
+                        free_space_pct_str = str(int(free_space_gb / total_space * 100))
+                    data.append([camera_name, str(battery_level), free_space_gb_str, free_space_pct_str])
                 except Exception:
                     logging.exception('Worker: exception while processing camera %s', camera_name)
                     continue
@@ -1780,6 +1840,80 @@ class CameraOverviewTableModel(QAbstractTableModel):
                 print('CameraOverview: view updated', flush=True)
         except Exception:
             logging.exception('Could not update camera overview view after data ready')
+
+        # Notify controller that cameras are ready (fires sync_camera_time + check_camera_state)
+        cb = getattr(self, 'on_ready_callback', None)
+        if cb is not None:
+            try:
+                cb()
+            except Exception:
+                logging.exception('on_ready_callback raised an exception')
+            finally:
+                self.on_ready_callback = None
+
+        # Show/hide Sony reminder banner in the main view depending on whether
+        # a Sony camera is present. Use vendor attribute when available, else
+        # fall back to camera name containing 'sony'.
+        try:
+            sony_present = False
+            pm = getattr(self, 'camera_overview_dict', None)
+            if pm:
+                for cam in pm.values():
+                    if cam is None:
+                        # fallback to names in data rows
+                        break
+                    if getattr(cam, 'vendor', None) == 'Sony':
+                        sony_present = True
+                        break
+            if not sony_present:
+                # fallback: check camera names from the table rows
+                for row in data:
+                    name = str(row[0]).lower()
+                    if 'sony' in name:
+                        sony_present = True
+                        break
+            if hasattr(self, 'view') and getattr(self.view, 'sony_reminder_label', None) is not None:
+                self.view.sony_reminder_label.setVisible(bool(sony_present))
+        except Exception:
+            logging.debug('Could not update Sony reminder visibility', exc_info=True)
+
+        # If we have actual camera objects, start the Sony background downloader
+        # automatically only when the camera reports PC-Only save destination.
+        try:
+            from solareclipseworkbench.camera import get_sony_save_destination
+            if pm:
+                for cam in pm.values():
+                    try:
+                        if cam is None:
+                            continue
+                        if getattr(cam, 'vendor', None) != 'Sony':
+                            # ensure any previously running downloader is stopped
+                            try:
+                                cam.stop_background_downloader()
+                            except Exception:
+                                pass
+                            continue
+                        dest = get_sony_save_destination(cam)
+                        # If the save-destination widget is not exposed via gphoto2
+                        # (dest is None) the camera may still be in PC-only mode
+                        # and we should start the downloader. Also start when the
+                        # camera explicitly reports 'PC Only'.
+                        if dest is None or 'pc only' in dest.lower():
+                            try:
+                                cam.start_background_downloader()
+                            except Exception:
+                                logging.exception('Failed to start downloader for Sony camera')
+                        else:
+                            try:
+                                cam.stop_background_downloader()
+                            except Exception:
+                                pass
+                    except Exception:
+                        logging.debug('Error while checking Sony save destination', exc_info=True)
+        except Exception:
+            logging.debug('Could not auto-start Sony downloader', exc_info=True)
+        except Exception:
+            logging.debug('Could not update Sony reminder visibility', exc_info=True)
 
     def _try_apply_pending(self):
         """Poll for pending data written by the background worker and apply it on the GUI thread."""
@@ -2005,6 +2139,8 @@ def main():
     console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     logging.getLogger().addHandler(console_handler)
     LOGGER.info("Starting up Solar Eclipse Workbench")
+    # Reminder for Sony users: prefer PC+Camera (writes to SD card + RAM)
+    LOGGER.info("Sony users: set 'PC Remote Settings → Save Destination' to 'PC+Camera' (or 'Camera Only') to keep images on the SD card and preserve tight shot timing")
 
     parser = argparse.ArgumentParser(description="Solar Eclipse Workbench")
     parser.add_argument(
