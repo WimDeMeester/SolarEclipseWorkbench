@@ -233,6 +233,40 @@ You only need to do this once; the WinUSB driver persists across reboots for tha
 > Camera Menu → Network → PC Remote Settings → PC Remote → **On**
 > The camera will show `(PC Control)` in its model name when correctly connected.
 
+### Sony PC Remote settings (recommended)
+
+Sony bodies expose a *Save Destination* that controls where still images are written when `PC Remote` is enabled. Set this once on the camera menu to avoid timing and reliability problems when running rapid sequences from SEW.
+
+- Menu path: `MENU → Network → PC Remote Settings → Save Destination`
+- Recommended value: **PC+Camera**
+  - Writes each image to the SD card *and* keeps a copy in camera RAM so `FILE_ADDED` events still fire.
+  - This gives SEW a guaranteed backup (SD card) while still allowing SEW to observe `FILE_ADDED` if desired.
+- Alternative: **Camera Only** — images go to the SD card only (safe, fast).
+- Avoid: **PC Only** — images are kept in camera RAM and must be downloaded over USB.
+  - Downloading large RAW files (e.g. ARW) synchronously between shots can take several seconds and will break short-interval shot timing.
+
+Important note for Sony bodies in `PC Only` or when the Save Destination option is not available
+---------------------------------------------------------------------------------------------
+
+- If the camera is in **PC Only** mode (or the camera does not expose a Save Destination widget
+  to gphoto2), every captured image is stored in the camera's RAM and must be transferred
+  to the computer over USB. Large RAW files can take several seconds to transfer. Expect a
+  practical capture rate of no more than one picture every 10 seconds in this mode.
+- Images captured in **PC Only** mode are NOT written to the camera's SD card — SEW saves
+  downloaded files to `~/Pictures/SolarEclipseWorkbench` by default. Check that folder for
+  your images after a test capture.
+
+If possible, set the camera to **PC+Camera** or **Camera Only** (recommended) so images are
+written to the SD card while SEW observes `FILE_ADDED` events; this preserves timing and
+guarantees a local backup on the card.
+
+If the camera is configured to write to the SD card (PC+Camera or Camera Only), SEW will no longer attempt blocking RAW downloads during the trigger loop. Instead SEW drains PTP events quickly so triggers remain on schedule and does not block on large USB transfers.
+
+Short guidance
+- If you want reliable, on-time sequences (1–2 s intervals): set **PC+Camera** or **Camera Only** on the camera. SEW will trigger on schedule and your images will be safe on the SD card.
+- If your camera is left in **PC Only** mode, expect slower operation and possible missed/dropped triggers while large RAW files are downloaded.
+
+
 ## Upgrading Solar Eclipse Workbench
 
 To upgrade Solar Eclipse Workbench to the latest version, activate your Python environment and run:
@@ -479,7 +513,7 @@ The following cameras are tested:
 - Nikon Z8
 - Nikon Z6iii
 - Sony ILCE-7M3 (α7 III)
-- Sony ILCE-7R II (α7R II)
+- Sony ILCE-7R II (α7R II): Very slow, because it does not support the `PC+Camera` Save Destination mode, so every picture is downloaded over USB before the next one can be taken.  Expect a practical capture rate of no more than one picture every 10 seconds with this camera.
 
 It is possible to take pictures in burst mode.  The speed is limited by the speed of the camera (and card).
 
