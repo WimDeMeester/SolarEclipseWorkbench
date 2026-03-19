@@ -659,16 +659,20 @@ class EquipmentPage(QWizardPage):
             self.camera_id_label.setStyleSheet("QLabel { color: #888; font-size: 9pt; font-style: italic; }")
 
     def _detect_camera_id(self):
-        """Read the serial number of a connected camera and link it to the current camera name."""
+        """Read the serial number of a connected camera and link it to the current camera name.
+
+        When no camera name has been entered yet (i.e. the user is on 'New Camera...'),
+        detection still runs and the detected model name is used to auto-populate the
+        camera-name field.  Serial mapping is skipped in that case — the user can click
+        'Detect Connected Camera' again (after optionally renaming) if they want to map
+        the serial (only needed when two cameras of the same model are used simultaneously).
+        """
         from PyQt6.QtWidgets import QApplication
 
         camera_name = self.camera_name_edit.text().strip()
-        if not camera_name:
-            QMessageBox.warning(
-                self, "No Camera Name",
-                "Please enter a camera name before detecting a connected camera."
-            )
-            return
+        # NOTE: we intentionally do NOT bail out early when camera_name is empty —
+        # detection must work for 'New Camera...' so the user can discover what is
+        # connected and have the name field auto-populated.
 
         # Give visual feedback while detecting
         self.detect_camera_btn.setEnabled(False)
@@ -692,27 +696,53 @@ class EquipmentPage(QWizardPage):
             self.detect_camera_btn.setText("Detect Connected Camera")
 
         if not detected:
-            QMessageBox.information(
-                self, "No Camera Found",
+            msg = (
                 "No cameras were detected.\n\n"
-                "Please connect the camera you want to map to "
-                f"'{camera_name}' and try again."
+                f"Please connect the camera you want to map to '{camera_name}' and try again."
+                if camera_name else
+                "No cameras were detected.\n\n"
+                "Please connect your camera via USB and try again."
             )
+            QMessageBox.information(self, "No Camera Found", msg)
             return
 
         if len(detected) > 1:
             # Ask the user to disconnect all but one camera
             model_list = "\n".join(f"  • {m} ({p})" for m, p in detected)
+            target_hint = (
+                f"the one you want to map to '{camera_name}'"
+                if camera_name else
+                "the one you want to use"
+            )
             QMessageBox.warning(
                 self, "Multiple Cameras Connected",
                 f"More than one camera was detected:\n{model_list}\n\n"
-                f"Please disconnect all cameras except the one you want to map to "
-                f"'{camera_name}', then click 'Detect Connected Camera' again."
+                f"Please disconnect all cameras except {target_hint}, "
+                "then click 'Detect Connected Camera' again."
             )
             return
 
-        # Exactly one camera connected — connect to it and read the serial number
+        # Exactly one camera connected.
         model_name, port = detected[0]
+
+        # --- No camera name yet: auto-populate from model and return early ---
+        if not camera_name:
+            self.camera_name_edit.setText(model_name)
+            self.camera_name_edit.setReadOnly(False)
+            self.camera_name_edit.setStyleSheet("")
+            self._refresh_camera_id_label(model_name)
+            QMessageBox.information(
+                self, "Camera Detected",
+                f"Detected camera:  {model_name}\n\n"
+                "The camera name has been set to the detected model name.\n"
+                "You can rename it in the 'Camera Name' field above.\n\n"
+                "If you use two cameras of the same model at the same time, "
+                "enter a unique name for this camera and click "
+                "'Detect Connected Camera' again to map its serial number."
+            )
+            return
+
+        # --- Camera name already set: proceed with serial-number mapping ---
         self.detect_camera_btn.setEnabled(False)
         self.detect_camera_btn.setText("Reading serial…")
         QApplication.processEvents()

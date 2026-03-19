@@ -61,6 +61,17 @@ export PATH=<location_of_homebrew_installation>/bin:$PATH
 brew install gphoto2 pkg-config gdal
 ```
 
+- Note: macOS normally ships with an older system Python (for example 3.9.6). Since the instructions above use Homebrew to install `gphoto2`, it's convenient to also install a newer Python via Homebrew and create the virtual environment with that. Solar Eclipse Workbench does need python 3.11 or higher to work.  
+
+```bash
+# install Python 3.11 via Homebrew
+brew install python@3.11
+
+# create and activate the venv using the Homebrew Python
+python3.11 -m venv solareclipseworkbench
+source solareclipseworkbench/bin/activate
+```
+
 - Install the Solar Eclipse Workbench:
 
 ```bash
@@ -72,7 +83,8 @@ pip install solareclipseworkbench
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev python3.12-venv
+sudo apt-get update
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.12-venv
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
@@ -122,7 +134,8 @@ wsl --install
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev python3.12-venv
+sudo apt-get update
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.12-venv
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
@@ -131,17 +144,17 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcomm
 sudo apt-get install gphoto2/noble libgphoto2 python3-gphoto2
 ```
 
+- Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
+
+```bash
+python -m venv solareclipseworkbench
+```
+
 - Eventually, to make the sound notifications a bit faster, install pygobject:
 
 ```bash
 sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
 pip install pygobject
-```
-
-- Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
-
-```bash
-python -m venv solareclipseworkbench
 ```
 
 - Install the Solar Eclipse Workbench:
@@ -231,6 +244,7 @@ pip show solareclipseworkbench
 - Start Solar Eclipse Workbench by executing the following commands:
 
 ```bash
+source solareclipseworkbench/bin/activate
 sew
 ```
 
@@ -238,10 +252,12 @@ sew
 
 ```bash
 # On macos, start the commands with sudo
+source solareclipseworkbench/bin/activate
 sudo sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
 sudo sew
 
 # In Linux or using WSL on Windows, start the command without sudo
+source solareclipseworkbench/bin/activate
 sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
 sew
 ```
@@ -454,6 +470,7 @@ The following cameras are tested:
 - Nikon Z8
 - Nikon Z6iii
 - Sony ILCE-7M3 (α7 III)
+- Sony ILCE-7R II (α7R II)
 
 It is possible to take pictures in burst mode.  The speed is limited by the speed of the camera (and card).
 
@@ -587,6 +604,7 @@ cd SolarEclipseWorkbench
 - Install the python environment by executing the following command in the Solar Eclipse Workbench directory:
 
 ```bash
+uv python install 3.11
 uv sync --group dev
 uv pip install PyObjC
 ```
@@ -610,6 +628,7 @@ cd SolarEclipseWorkbench
 - Install the python environment by executing the following command in the Solar Eclipse Workbench directory:
 
 ```bash
+uv python install 3.11
 uv sync --group dev
 ```
 
@@ -648,6 +667,7 @@ git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
 
 ```bash
 cd SolarEclipseWorkbench
+uv python install 3.11
 uv sync --group dev
 ```
 
@@ -668,6 +688,12 @@ uv pip install pygobject
 
 ```bash
 uv run sew
+```
+
+## Upgrading all dependencies to the latest version
+
+```bash
+uv sync --upgrade
 ```
 
 ## Create and upload a new pip package
