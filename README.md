@@ -103,8 +103,7 @@ sudo chmod -x /usr/lib/gvfs/gvfsd-gphoto2
 - Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
 
 ```bash
-sudo apt install libgdal-dev gdal-bin
-```
+sudo apt install libgdal-dev gdal-bin python3-pip```
 
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
@@ -145,25 +144,36 @@ wsl.exe --install Ubuntu-24.04
 ```bash
 sudo apt-get update
 sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.12-venv
+sudo apt install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad libgstreamer1.0-dev pulseaudio \
+  alsa-utils python3-gi gir1.2-gstreamer-1.0
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
 
 ```bash
-sudo apt-get install gphoto2/noble libgphoto2 python3-gphoto2
+sudo apt-get install gphoto2/noble libgphoto2-dev python3-gphoto2 python3-pip
 ```
 
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
-python -m venv solareclipseworkbench
+cd
+python3 -m venv solareclipseworkbench
+source solareclipseworkbench/bin/activate
 ```
 
 - Eventually, to make the sound notifications a bit faster, install pygobject:
 
 ```bash
-sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
+sudo apt install libcairo2-dev libgirepository-2.0-dev gcc python3-dev gobject-* gir1.2-*
 pip install pygobject
+```
+
+- Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
+
+```bash
+sudo apt install libgdal-dev gdal-bin
 ```
 
 - Install the Solar Eclipse Workbench:
@@ -272,6 +282,7 @@ Short guidance
 To upgrade Solar Eclipse Workbench to the latest version, activate your Python environment and run:
 
 ```bash
+cd
 source solareclipseworkbench/bin/activate
 pip install --upgrade solareclipseworkbench
 ```
@@ -287,6 +298,7 @@ pip show solareclipseworkbench
 - Start Solar Eclipse Workbench by executing the following commands:
 
 ```bash
+cd
 source solareclipseworkbench/bin/activate
 sew
 ```
@@ -300,6 +312,7 @@ sudo sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
 sudo sew
 
 # In Linux or using WSL on Windows, start the command without sudo
+cd
 source solareclipseworkbench/bin/activate
 sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
 sew
