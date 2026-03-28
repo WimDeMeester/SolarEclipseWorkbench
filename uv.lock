@@ -47,11 +47,11 @@ wheels = [
 
 [[package]]
 name = "astropy-iers-data"
-version = "0.2026.3.16.0.53.33"
+version = "0.2026.3.23.0.51.38"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/11/5e/48429424e4b972d5ebceb46f578b3d7848aee0a75bc78acb18b4f3967ded/astropy_iers_data-0.2026.3.16.0.53.33.tar.gz", hash = "sha256:8da3b6c56573cf63ec99c0e7b4ab74be7dc5af2aaa4a62fb671879f7411acbb6", size = 1928977, upload-time = "2026-03-16T00:54:24.17Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/e6/76dcf596ddedd0cc3971cc54e00580c4cf092982332ba137e397fc811b71/astropy_iers_data-0.2026.3.23.0.51.38.tar.gz", hash = "sha256:6f94246080a0ea757e3e10dc2c62467bb5b14b9b83abbb6069b0c491ac22ca68", size = 1928481, upload-time = "2026-03-23T00:52:22.323Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/7f/223a0d2ba7ea0c798b59e5a0f61782347cf9292274a1f7f3eef0a02c1536/astropy_iers_data-0.2026.3.16.0.53.33-py3-none-any.whl", hash = "sha256:f8e118ace0727540131384fe5a07fddbab970a9a368fb47e46e7ca7166b9557c", size = 1985352, upload-time = "2026-03-16T00:54:22.885Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/b8/7e6c709267796804ee6cb25e58dd97d45f6f67d0c4dcbe710ef6991bfdae/astropy_iers_data-0.2026.3.23.0.51.38-py3-none-any.whl", hash = "sha256:a1a7b94db4e354a529695fcb8e5ed59f8212fdb31fdf3a9a07bcbc09bf6a3484", size = 1985387, upload-time = "2026-03-23T00:52:20.885Z" },
 ]
 
 [[package]]
@@ -1310,7 +1310,7 @@ wheels = [
 
 [[package]]
 name = "requests"
-version = "2.32.5"
+version = "2.33.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
@@ -1318,9 +1318,9 @@ dependencies = [
     { name = "idna" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/74/b3ff8e6c8446842c3f5c837e9c3dfcfe2018ea6ecef224c710c85ef728f4/requests-2.32.5.tar.gz", hash = "sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf", size = 134517, upload-time = "2025-08-18T20:46:02.573Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/64/8860370b167a9721e8956ae116825caff829224fbca0ca6e7bf8ddef8430/requests-2.33.0.tar.gz", hash = "sha256:c7ebc5e8b0f21837386ad0e1c8fe8b829fa5f544d8df3b2253bff14ef29d7652", size = 134232, upload-time = "2026-03-25T15:10:41.586Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/db/4254e3eabe8020b458f1a747140d32277ec7a271daf1d235b70dc0b4e6e3/requests-2.32.5-py3-none-any.whl", hash = "sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6", size = 64738, upload-time = "2025-08-18T20:46:00.542Z" },
+    { url = "https://files.pythonhosted.org/packages/56/5d/c814546c2333ceea4ba42262d8c4d55763003e767fa169adc693bd524478/requests-2.33.0-py3-none-any.whl", hash = "sha256:3324635456fa185245e24865e810cecec7b4caf933d7eb133dcde67d48cee69b", size = 65017, upload-time = "2026-03-25T15:10:40.382Z" },
 ]
 
 [[package]]
