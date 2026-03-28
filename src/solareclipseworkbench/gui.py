@@ -599,7 +599,7 @@ class SolarEclipseView(QMainWindow, Observable):
         global_layout = QVBoxLayout()
         # show reminder banner at top
         global_layout.addWidget(self.sony_reminder_label)
-        global_layout.addLayout(hbox)
+        global_layout.addLayout(input_hbox)
 
         # global_layout.addWidget(scroll)
         global_layout.addLayout(output_hbox)
