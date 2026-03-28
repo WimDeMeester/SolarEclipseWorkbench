@@ -62,9 +62,14 @@ def observe_solar_eclipse(ref_moments: dict, commands_filename: str, cameras: di
 
     # Calculate simulated time
     if reference_moment:
-        simulated_start = datetime.now(pytz.utc) + timedelta(minutes=minutes_to_reference_moment)
+        now = datetime.now(pytz.utc)
+        simulated_start = now + timedelta(minutes=minutes_to_reference_moment)
+
+        offset = ref_moments[reference_moment].time_utc - timedelta(minutes=minutes_to_reference_moment) - now
+        controller.view.eclipse_visualization.set_offset(offset)
     else:
         simulated_start = None
+        controller.view.eclipse_visualization.set_offset(timedelta(minutes=0))
 
     # Schedule commands
     schedule_commands(commands_filename, scheduler, ref_moments, cameras, controller, reference_moment, simulated_start)

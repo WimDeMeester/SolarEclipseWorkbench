@@ -7,21 +7,25 @@
 import argparse
 import datetime
 import logging
+import math
 import os.path
 import sys
 import time
+from dataclasses import dataclass
 from importlib.metadata import version, PackageNotFoundError
 from enum import Enum
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 import geopandas
+import numpy as np
 import pandas as pd
 import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
-from PyQt6.QtGui import QIcon, QAction, QDoubleValidator, QIntValidator, QCloseEvent
+from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
     QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QTableView, QMessageBox
+from PyQt6 import QtWidgets
 from apscheduler.job import Job
 from apscheduler.schedulers import SchedulerNotRunningError
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -30,7 +34,7 @@ from geodatasets import get_path
 from gphoto2 import GPhoto2Error, Camera
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from timezonefinder import TimezoneFinder
+from skyfield.api import load, wgs84
 
 import threading
 
@@ -40,6 +44,7 @@ from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
 from solareclipseworkbench.location_ui import ConfigManager, LocationWidget
+from solareclipseworkbench.constants import SUN_RADIUS, MOON_RADIUS
 
 ICON_PATH = Path(__file__).parent.resolve() / "img"
 
@@ -386,6 +391,8 @@ class SolarEclipseView(QMainWindow, Observable):
 
         self.camera_overview = QTableView()
 
+        self.eclipse_visualization = EclipsePlotWidget()
+
         self.jobs_table = QJobsTableView()
 
         self.init_ui()
@@ -523,12 +530,28 @@ class SolarEclipseView(QMainWindow, Observable):
         reference_moments_group_box.setFixedWidth(600)
 
         # noinspection SpellCheckingInspection
-        hbox = QHBoxLayout()
-        hbox.addLayout(vbox_left)
-        hbox.addWidget(reference_moments_group_box)
+        input_hbox = QHBoxLayout()
+        input_hbox.addLayout(vbox_left)
+        input_hbox.addWidget(reference_moments_group_box)
 
         self.camera_overview.setFixedHeight(300)
-        hbox.addWidget(self.camera_overview)
+        input_hbox.addWidget(self.camera_overview)
+
+
+        # eclipse_figure = Figure(figsize=(5, 4))
+        # self.eclipse_visualization = FigureCanvas(eclipse_figure)
+        #
+        # self.eclipse_visualization.figure.plot(np.arange(10))
+
+        # pg.setConfigOptions(antialias=True)
+        # self.eclipse_visualization = EclipsePlot()
+
+        # self.eclipse_visualization = pg.PlotWidget(background="w")
+        #
+        # self.eclipse_visualization.setAspectLocked(True, ratio=1)
+        # self.eclipse_visualization.showGrid(x=True, y=True, alpha=0.25)
+        # self.eclipse_visualization.setLabel("left", "North (solar radii)")
+        # self.eclipse_visualization.setLabel("bottom", "East (solar radii)")
 
         scroll = QScrollArea()
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
@@ -537,10 +560,17 @@ class SolarEclipseView(QMainWindow, Observable):
 
         scroll.setWidget(self.jobs_table)
 
-        global_layout = QVBoxLayout()
-        global_layout.addLayout(hbox)
+        # noinspection SpellCheckingInspection
+        output_hbox = QHBoxLayout()
+        output_hbox.addWidget(self.eclipse_visualization)
+        # output_hbox.addWidget(self.canvas)
+        output_hbox.addWidget(scroll)
 
-        global_layout.addWidget(scroll)
+        global_layout = QVBoxLayout()
+        global_layout.addLayout(input_hbox)
+
+        # global_layout.addWidget(scroll)
+        global_layout.addLayout(output_hbox)
 
         app_frame.setLayout(global_layout)
 
@@ -702,6 +732,7 @@ class SolarEclipseView(QMainWindow, Observable):
             label_text = str(format_countdown(countdown_sunset))
         self.sunset_countdown_label.setText(label_text)
 
+
     def show_reference_moments(self, reference_moments: dict, magnitude: float, eclipse_type: str):
         """ Display the given reference moments, magnitude, and eclipse type.
 
@@ -713,12 +744,12 @@ class SolarEclipseView(QMainWindow, Observable):
         """
 
         if eclipse_type == "Partial" or eclipse_type == "Annular":
-            self.eclipse_type.setText(eclipse_type + f" eclipse ({round(magnitude, 2)})")
+            self.eclipse_type.setText(eclipse_type + f" ({round(magnitude, 2)})")
         elif eclipse_type == "No eclipse":
             self.eclipse_type.setText(eclipse_type)
         else:
             minutes, seconds = divmod(reference_moments["duration"].seconds, 60)
-            self.eclipse_type.setText(f"{eclipse_type} eclipse ({minutes}:{seconds:02})")
+            self.eclipse_type.setText(f"{eclipse_type} ({minutes}:{seconds:02})")
 
         # First contact
 
@@ -872,7 +903,11 @@ class SolarEclipseController(Observer):
         self.view.update_time(current_time_local, current_time_utc, countdown_c1, countdown_c2, countdown_max,
                               countdown_c3, countdown_c4, countdown_sunrise, countdown_sunset)
 
+        # self.view.eclipse_visualization.plot(current_time_utc)    FIXME
+
         self.update_jobs_countdown()
+
+        self.view.eclipse_visualization.plot(current_time_utc)
 
     def update_jobs_countdown(self):
         """ Update the countdown of the scheduled jobs. """
@@ -909,6 +944,9 @@ class SolarEclipseController(Observer):
             self.view.longitude_label.setText(str(longitude))
             self.view.latitude_label.setText(str(latitude))
             self.view.altitude_label.setText(str(altitude))
+
+            self.view.eclipse_visualization.set_location(longitude, latitude, altitude)
+
             return
 
         elif isinstance(changed_object, EclipsePopup):
@@ -1173,12 +1211,15 @@ class SolarEclipseController(Observer):
         Returns: True if the location was set, false otherwise.
         """
 
+
         if longitude and latitude and altitude:
             self.model.set_position(longitude, latitude, altitude)
 
             self.view.longitude_label.setText(str(longitude))
             self.view.latitude_label.setText(str(latitude))
             self.view.altitude_label.setText(str(altitude))
+
+            self.view.eclipse_visualization.set_location(longitude, latitude, altitude)
 
             return True
 
@@ -1571,6 +1612,251 @@ class LocationPlot(FigureCanvas):
 
         self.draw()
         self.location_is_drawn = True
+
+
+
+@dataclass(frozen=True)
+class Observer:
+    latitude: float
+    longitude: float
+    altitude: float
+
+
+class EclipsePlotWidget(QtWidgets.QWidget):
+    """
+    PyQt6 QWidget that plots Sun & Moon discs to scale for a given observer and datetime.
+
+    - Axes are in units of *solar radii* with the Sun drawn as a unit circle centered at (0, 0).
+    - By default: North is up, East is right (astronomical convention).
+      Set east_left=True to mirror the X axis (East to the left) like many star charts.
+    - Call .plot(datetime_obj) to render a frame.
+    """
+
+    # Cache ephemerides + timescales across instances to avoid repeated downloads
+
+    CACHED_EPHEMERIDES = None
+    CACHED_TIMESCALE = None
+
+    def __init__(
+        self,
+
+        east_left: bool = False,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self.offset = datetime.timedelta(minutes=0)
+
+        # self.east_left = bool(east_left)
+
+        # --- Lazy-load ephemerides and timescale (shared) ---
+        if EclipsePlotWidget.CACHED_TIMESCALE is None:
+            EclipsePlotWidget.CACHED_TIMESCALE = load.timescale()
+        if EclipsePlotWidget.CACHED_EPHEMERIDES is None:
+            # de440s: modern, compact; Skyfield caches it in ~/.cache/skyfield
+            EclipsePlotWidget.CACHED_EPHEMERIDES = load("de440s.bsp")
+
+        self.sun_ephemeris = self.CACHED_EPHEMERIDES["sun"]
+        self.moon_ephemeris = self.CACHED_EPHEMERIDES["moon"]
+
+        # --- Matplotlib figure canvas inside this QWidget ---
+        self.fig = Figure(figsize=(6.0, 6.2), dpi=100)
+        self.canvas = FigureCanvas(self.fig)
+        self.ax = self.fig.add_subplot(111)  # single axes
+
+        # UI layout
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.canvas)
+
+        # Prepare static plot styling (labels, grid, aspect)
+        self._init_axes()
+
+        # self.longitude = None
+        # self.latitude = None
+        # self.altitude = None
+
+        self.observer = None
+        self.is_location_set = False
+
+    def set_location(self, longitude, latitude, altitude):
+
+        # self.longitude = longitude
+        # self.latitude = latitude
+        # self.altitude = altitude
+        self.observer = Observer(latitude=latitude, longitude=longitude, altitude=altitude)
+
+        self.is_location_set = True
+
+    # ------------- Public API -------------
+
+    def set_offset(self, offset):
+        self.offset = offset
+
+    def plot(self, when: datetime) -> None:
+        """
+        Render eclipse geometry for the current observer at a given datetime.
+
+        Parameters
+        ----------
+        when : datetime
+            Prefer a timezone-aware datetime (UTC). If naive, it's interpreted as UTC.
+        """
+
+        when += self.offset
+
+        if not self.is_location_set:
+            print("Location not set. Please use set_location() first.")
+            return
+
+        # Interpret naive datetimes as UTC for robustness
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=pytz.UTC)
+
+        t = self.CACHED_TIMESCALE.from_datetime(when)
+
+
+
+        # Build topocentric observer by attaching a Topos to the Earth body
+        # (compose `earth_ephemeris + wgs84.latlon(...)`). The older direct
+        # Topos.at(t) path is unreliable across Skyfield versions, so use the
+        # earth+Topos site object which consistently supports `.at(t)`.
+        earth_ephemeris = self.CACHED_EPHEMERIDES["earth"]
+        site = earth_ephemeris + wgs84.latlon(
+            self.observer.latitude,
+            self.observer.longitude,
+            elevation_m=self.observer.altitude,
+        )
+
+        sun_app = site.at(t).observe(self.sun_ephemeris).apparent()
+        moon_app = site.at(t).observe(self.moon_ephemeris).apparent()
+
+        # Compute topocentric unit direction vectors using local horizontal
+        # (alt/az) coordinates and form ENU unit vectors. Then project the
+        # difference between Moon and Sun directions onto the tangent plane
+        # (East, North) at the observer. This yields small-angle offsets in
+        # radians which we scale to solar radii for plotting.
+
+        # Use 3D topocentric unit vectors and project the Moon into the
+        # tangent plane perpendicular to the Sun direction. This gives a
+        # robust small-angle offset that matches angular separation.
+
+        # Compute small-angle horizontal offsets using alt/az differences so
+        # the plotted geometry is in local horizontal coordinates (matching
+        # Stellarium). For small separations:
+        #   x_east ≈ Δaz * cos(mean_alt)   (radians)
+        #   y_north ≈ Δalt                  (radians)
+        sun_alt, sun_az, _ = sun_app.altaz()
+        moon_alt, moon_az, _ = moon_app.altaz()
+
+        a_s = sun_alt.radians
+        A_s = sun_az.radians
+        a_m = moon_alt.radians
+        A_m = moon_az.radians
+
+        # Wrap Δaz into [-pi, +pi]
+        delta_az = (A_m - A_s + math.pi) % (2.0 * math.pi) - math.pi
+        mean_alt = 0.5 * (a_s + a_m)
+
+        x_east = float(delta_az * math.cos(mean_alt))
+        y_north = float(a_m - a_s)
+
+        # Position Angle (PA): from North through East
+        pa_deg = (math.degrees(math.atan2(x_east, y_north)) + 360.0) % 360.0
+
+        # Apparent angular radii (radians)
+        sun_distance = sun_app.distance().m     # Distance Earth - Sun [m]
+        moon_dist = moon_app.distance().m     # Distance Earth - Moon [m]
+        sun_ang_radius = math.asin(SUN_RADIUS / sun_distance)   # Angular radius of the Sun [radians]
+        moon_ang_radius = math.asin(MOON_RADIUS / moon_dist)    # Angular radius of the Moon [radians]
+
+        # Normalise to solar radius for plotting
+        scale = 1.0 / sun_ang_radius
+        xm = x_east * scale
+        ym = y_north * scale
+        r_moon_scaled = moon_ang_radius * scale
+
+        
+
+        # ---- Draw ----
+        self.ax.clear()
+        self._init_axes()  # re-apply static styling
+
+        # Sun disk (unit radius)
+        sun_disk = self._mpl_circle((0.0, 0.0), 1.0, facecolor="#FDB813", edgecolor="k", alpha=0.85, lw=1.0)
+        self.ax.add_patch(sun_disk)
+
+        # Moon disk
+        moon_disk = self._mpl_circle((xm, ym), r_moon_scaled, facecolor="k", edgecolor="k", alpha=0.92, lw=1.0)
+        self.ax.add_patch(moon_disk)
+
+        # # Cardinal labels on Sun’s rim
+        # self._cardinal_marks()
+
+        # # Annotation box
+        # txt = (
+        #     f"Separation: {math.degrees(sep_rad):.3f}°\n"
+            # f"Position angle (Moon from Sun): {pa_deg:.1f}°  (0°=N, 90°=E)\n"
+        #     f"R_sun: {math.degrees(R_sun)*60:.2f}′   R_moon: {math.degrees(R_moon)*60:.2f}′"
+        # )
+        # self.ax.text(
+        #     0.02,
+        #     0.98,
+        #     txt,
+        #     transform=self.ax.transAxes,
+        #     ha="left",
+        #     va="top",
+        #     fontsize=9,
+        #     bbox=dict(facecolor="white", alpha=0.85, edgecolor="none"),
+        # )
+
+        # Title
+
+        title_loc = f"({self.observer.latitude:.4f}°, {self.observer.longitude:.4f}°, {self.observer.altitude:.0f} m)"
+        # ISO string in UTC for clarity
+        self.ax.set_title(
+            f"Solar eclipse geometry",
+            fontsize=11,
+        )
+
+        # Limits
+
+        # margin = 1.25 * max(1.0, abs(xm) + r_moon_scaled, abs(ym) + r_moon_scaled)
+        margin = 1.5
+        self.ax.set_xlim(-margin, margin)
+        self.ax.set_ylim(-margin, margin)
+        
+        # Redraw canvas
+
+        self.canvas.draw_idle()
+
+    # ------------- Internals -------------
+
+    def _init_axes(self) -> None:
+        """Initialize axes labels, grids, aspect, and crosshair."""
+        self.ax.set_aspect("equal", adjustable="box")
+        # self.ax.set_xlabel("East (in solar radii)")
+        # self.ax.set_ylabel("North (in solar radii)")
+        # self.ax.grid(False, alpha=0.25, lw=0.6)
+
+        # Centre crosshair
+        # self.ax.axhline(0, color="lightgray", lw=0.6)
+        # self.ax.axvline(0, color="lightgray", lw=0.6)
+
+    def _mpl_circle(self, center, radius, **kwargs):
+        import matplotlib.patches as mpatches
+
+        return mpatches.Circle(center, radius, **kwargs)
+
+    # def _cardinal_marks(self) -> None:
+    #     offs = 1.08
+    #     for label, (x, y) in [
+    #         ("N", (0, +offs)),
+    #         ("E", (+offs if not self.east_left else -offs, 0)),
+    #         ("S", (0, -1.12)),
+    #         ("W", (-1.12 if not self.east_left else +1.12, 0)),
+    #     ]:
+    #         self.ax.text(x, y, label, ha="center", va="center", fontsize=10, color="dimgray")
 
 
 def format_countdown(countdown: datetime.timedelta):
@@ -2039,7 +2325,7 @@ def main():
     parser.add_argument(
         "-alt",
         "--altitude",
-        help="altitude of the location where to watch the solar eclipse (in meters)",
+        help="altitude of the location where to watch the solar eclipse (in metres)",
         default=False,
         type=float
     )
