@@ -4,9 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.7.0] - 2026-03-17
+## [1.7.0] - 2026-03-28
 
 ### Added
+- **Eclipse visualization**: Added an interactive Sun & Moon renderer (`EclipsePlotWidget`) to
+  the main GUI that draws the apparent solar and lunar discs to scale in local horizontal
+  coordinates (solar radii). The widget accounts for topocentric parallax and apparent
+  angular sizes so the preview matches on-site geometry and helps verify contact timings.
+
 - **Sony camera support**: Sony Alpha DSLR and mirrorless cameras (e.g. ILCE-7M3, ILCE-7RM5,
   A7 IV, A9 III) are now fully supported alongside Canon and Nikon.
 
