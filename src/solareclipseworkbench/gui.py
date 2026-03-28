@@ -1719,15 +1719,12 @@ class EclipsePlotWidget(QtWidgets.QWidget):
 
         t = self.CACHED_TIMESCALE.from_datetime(when)
 
-        print(f"Observer: {self.observer.longitude}, {self.observer.latitude}, {self.observer.altitude}")
 
-        #  #Build topocentric observer
-        # obs = wgs84.latlon(self.observer.latitude, self.observer.longitude, elevation_m=self.observer.altitude)
-        # # Apparent topocentric positions (ICRF direction vectors)
-        # sun_app = obs.at(t).observe(self.sun_ephemeris).apparent()
-        # moon_app = obs.at(t).observe(self.moon_ephemeris).apparent()
 
-        # AFTER (topocentric observer; works)
+        # Build topocentric observer by attaching a Topos to the Earth body
+        # (compose `earth_ephemeris + wgs84.latlon(...)`). The older direct
+        # Topos.at(t) path is unreliable across Skyfield versions, so use the
+        # earth+Topos site object which consistently supports `.at(t)`.
         earth_ephemeris = self.CACHED_EPHEMERIDES["earth"]
         site = earth_ephemeris + wgs84.latlon(
             self.observer.latitude,
@@ -1738,45 +1735,52 @@ class EclipsePlotWidget(QtWidgets.QWidget):
         sun_app = site.at(t).observe(self.sun_ephemeris).apparent()
         moon_app = site.at(t).observe(self.moon_ephemeris).apparent()
 
-        s_vec = sun_app.position.km
-        m_vec = moon_app.position.km
-        s_hat = s_vec / np.linalg.norm(s_vec)
-        m_hat = m_vec / np.linalg.norm(m_vec)
+        # Compute topocentric unit direction vectors using local horizontal
+        # (alt/az) coordinates and form ENU unit vectors. Then project the
+        # difference between Moon and Sun directions onto the tangent plane
+        # (East, North) at the observer. This yields small-angle offsets in
+        # radians which we scale to solar radii for plotting.
 
-        # Sun's RA/Dec to define North/East basis at the Sun
-        ra, dec, _ = sun_app.radec()
-        ra = ra.radians
-        dec = dec.radians
+        # Use 3D topocentric unit vectors and project the Moon into the
+        # tangent plane perpendicular to the Sun direction. This gives a
+        # robust small-angle offset that matches angular separation.
 
-        # Sky basis (North/East) at the Sun
-        n_hat = np.array(
-            [-np.sin(dec) * np.cos(ra), -np.sin(dec) * np.sin(ra), np.cos(dec)]
-        )  # +Dec direction (north/up)
-        e_hat = np.array([-np.sin(ra), np.cos(ra), 0.0])  # +RA direction (east/right)
+        # Compute small-angle horizontal offsets using alt/az differences so
+        # the plotted geometry is in local horizontal coordinates (matching
+        # Stellarium). For small separations:
+        #   x_east ≈ Δaz * cos(mean_alt)   (radians)
+        #   y_north ≈ Δalt                  (radians)
+        sun_alt, sun_az, _ = sun_app.altaz()
+        moon_alt, moon_az, _ = moon_app.altaz()
 
-        # Project Moon into tangent plane perpendicular to s_hat (small-angle)
-        delta = m_hat - np.dot(m_hat, s_hat) * s_hat
-        x_east = float(np.dot(delta, e_hat))   # radians
-        y_north = float(np.dot(delta, n_hat))  # radians
-        # sep_rad = math.hypot(x_east, y_north)
+        a_s = sun_alt.radians
+        A_s = sun_az.radians
+        a_m = moon_alt.radians
+        A_m = moon_az.radians
+
+        # Wrap Δaz into [-pi, +pi]
+        delta_az = (A_m - A_s + math.pi) % (2.0 * math.pi) - math.pi
+        mean_alt = 0.5 * (a_s + a_m)
+
+        x_east = float(delta_az * math.cos(mean_alt))
+        y_north = float(a_m - a_s)
 
         # Position Angle (PA): from North through East
         pa_deg = (math.degrees(math.atan2(x_east, y_north)) + 360.0) % 360.0
 
-        print(f"Position angle: {pa_deg}")
         # Apparent angular radii (radians)
-
         sun_distance = sun_app.distance().m     # Distance Earth - Sun [m]
         moon_dist = moon_app.distance().m     # Distance Earth - Moon [m]
         sun_ang_radius = math.asin(SUN_RADIUS / sun_distance)   # Angular radius of the Sun [radians]
-        moon_ang_radius = math.asin(MOON_RADIUS / moon_dist)    # Angular radius of the Moon [radius]
+        moon_ang_radius = math.asin(MOON_RADIUS / moon_dist)    # Angular radius of the Moon [radians]
 
         # Normalise to solar radius for plotting
-
         scale = 1.0 / sun_ang_radius
-        xm = -x_east * scale
-        ym = -y_north * scale
+        xm = x_east * scale
+        ym = y_north * scale
         r_moon_scaled = moon_ang_radius * scale
+
+        
 
         # ---- Draw ----
         self.ax.clear()
