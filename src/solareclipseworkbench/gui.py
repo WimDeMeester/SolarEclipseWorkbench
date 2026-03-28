@@ -1211,7 +1211,6 @@ class SolarEclipseController(Observer):
         Returns: True if the location was set, false otherwise.
         """
 
-        print(f"Setting location: {longitude}, {latitude}, {altitude}")
 
         if longitude and latitude and altitude:
             self.model.set_position(longitude, latitude, altitude)
@@ -1692,8 +1691,6 @@ class EclipsePlotWidget(QtWidgets.QWidget):
     # ------------- Public API -------------
 
     def set_offset(self, offset):
-        print(f"Setting offset to {offset}")
-
         self.offset = offset
 
     def plot(self, when: datetime) -> None:
@@ -1711,7 +1708,6 @@ class EclipsePlotWidget(QtWidgets.QWidget):
         if not self.is_location_set:
             print("Location not set. Please use set_location() first.")
             return
-        # print("Update eclipse visualisation")
 
         # Interpret naive datetimes as UTC for robustness
         if when.tzinfo is None:
@@ -1819,8 +1815,7 @@ class EclipsePlotWidget(QtWidgets.QWidget):
         title_loc = f"({self.observer.latitude:.4f}°, {self.observer.longitude:.4f}°, {self.observer.altitude:.0f} m)"
         # ISO string in UTC for clarity
         self.ax.set_title(
-            f"Solar eclipse geometry — {title_loc}\n{when.astimezone(tz=datetime.timezone.utc).isoformat()} UTC — "
-            f"\nTopocentric", #, North up / {'East left' if self.east_left else 'East right'}",
+            f"Solar eclipse geometry",
             fontsize=11,
         )
 
