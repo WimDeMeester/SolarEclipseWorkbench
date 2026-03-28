@@ -122,8 +122,13 @@ def calculate_reference_moments(longitude: float, latitude: float, altitude: flo
     first_contact_alt, first_contact_az = calculate_alt_az(earth, loc, result['ut_first_contact'], sun_ephem, time, ts)
     last_contact_alt, last_contact_az = calculate_alt_az(earth, loc, result['ut_last_contact'], sun_ephem, time, ts)
 
+    # Normalize altitudes to numeric degrees for comparison
+    res_h_val = getattr(result['h'], 'degrees', result['h'])
+    first_alt_val = getattr(first_contact_alt, 'degrees', first_contact_alt)
+    last_alt_val = getattr(last_contact_alt, 'degrees', last_contact_alt)
+
     # Check if altitude at one of the moments is > 0.0
-    if result['h'] > 0.0 or first_contact_alt > 0.0 or last_contact_alt > 0.0:
+    if res_h_val > 0.0 or first_alt_val > 0.0 or last_alt_val > 0.0:
         sc_h, sc_m, sc_s = ut_to_hms(result['ut_first_contact'])
         sc_microseconds = int((sc_s - int(sc_s)) * 1_000_000)
 

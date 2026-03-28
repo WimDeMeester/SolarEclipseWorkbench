@@ -61,6 +61,17 @@ export PATH=<location_of_homebrew_installation>/bin:$PATH
 brew install gphoto2 pkg-config gdal
 ```
 
+- Note: macOS normally ships with an older system Python (for example 3.9.6). Since the instructions above use Homebrew to install `gphoto2`, it's convenient to also install a newer Python via Homebrew and create the virtual environment with that. Solar Eclipse Workbench does need python 3.11 or higher to work.  
+
+```bash
+# install Python 3.11 via Homebrew
+brew install python@3.11
+
+# create and activate the venv using the Homebrew Python
+python3.11 -m venv solareclipseworkbench
+source solareclipseworkbench/bin/activate
+```
+
 - Install the Solar Eclipse Workbench:
 
 ```bash
@@ -72,7 +83,8 @@ pip install solareclipseworkbench
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev python3.12-venv
+sudo apt-get update
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.12-venv
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
@@ -91,8 +103,7 @@ sudo chmod -x /usr/lib/gvfs/gvfsd-gphoto2
 - Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
 
 ```bash
-sudo apt install libgdal-dev gdal-bin
-```
+sudo apt install libgdal-dev gdal-bin python3-pip```
 
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
@@ -131,26 +142,38 @@ wsl.exe --install Ubuntu-24.04
 - Install gstreamer to be able to play the sound notifications by executing the following line in the terminal
 
 ```bash
-sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo-dev python3.12-venv
+sudo apt-get update
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcommon-x11-0 libxcb-cursor0 libcairo2-dev python3.12-venv
+sudo apt install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad libgstreamer1.0-dev pulseaudio \
+  alsa-utils python3-gi gir1.2-gstreamer-1.0
 ```
 
 - Install gphoto2 to be able to access the cameras by executing the following line in the terminal
 
 ```bash
-sudo apt-get install gphoto2/noble libgphoto2 python3-gphoto2
-```
-
-- Eventually, to make the sound notifications a bit faster, install pygobject:
-
-```bash
-sudo apt install libcairo2-dev libgirepository1.0-dev gcc python3-dev gobject-* gir1.2-*
-pip install pygobject
+sudo apt-get install gphoto2/noble libgphoto2-dev python3-gphoto2 python3-pip
 ```
 
 - Create a new python environment.  You can use venv or any python environment manager for this (like anaconda, micromamba, ...)
 
 ```bash
-python -m venv solareclipseworkbench
+cd
+python3 -m venv solareclipseworkbench
+source solareclipseworkbench/bin/activate
+```
+
+- Eventually, to make the sound notifications a bit faster, install pygobject:
+
+```bash
+sudo apt install libcairo2-dev libgirepository-2.0-dev gcc python3-dev gobject-* gir1.2-*
+pip install pygobject
+```
+
+- Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
+
+```bash
+sudo apt install libgdal-dev gdal-bin
 ```
 
 - Install the Solar Eclipse Workbench:
@@ -220,11 +243,46 @@ You only need to do this once; the WinUSB driver persists across reboots for tha
 > Camera Menu → Network → PC Remote Settings → PC Remote → **On**
 > The camera will show `(PC Control)` in its model name when correctly connected.
 
+### Sony PC Remote settings (recommended)
+
+Sony bodies expose a *Save Destination* that controls where still images are written when `PC Remote` is enabled. Set this once on the camera menu to avoid timing and reliability problems when running rapid sequences from SEW.
+
+- Menu path: `MENU → Network → PC Remote Settings → Save Destination`
+- Recommended value: **PC+Camera**
+  - Writes each image to the SD card *and* keeps a copy in camera RAM so `FILE_ADDED` events still fire.
+  - This gives SEW a guaranteed backup (SD card) while still allowing SEW to observe `FILE_ADDED` if desired.
+- Alternative: **Camera Only** — images go to the SD card only (safe, fast).
+- Avoid: **PC Only** — images are kept in camera RAM and must be downloaded over USB.
+  - Downloading large RAW files (e.g. ARW) synchronously between shots can take several seconds and will break short-interval shot timing.
+
+Important note for Sony bodies in `PC Only` or when the Save Destination option is not available
+---------------------------------------------------------------------------------------------
+
+- If the camera is in **PC Only** mode (or the camera does not expose a Save Destination widget
+  to gphoto2), every captured image is stored in the camera's RAM and must be transferred
+  to the computer over USB. Large RAW files can take several seconds to transfer. Expect a
+  practical capture rate of no more than one picture every 10 seconds in this mode.
+- Images captured in **PC Only** mode are NOT written to the camera's SD card — SEW saves
+  downloaded files to `~/Pictures/SolarEclipseWorkbench` by default. Check that folder for
+  your images after a test capture.
+
+If possible, set the camera to **PC+Camera** or **Camera Only** (recommended) so images are
+written to the SD card while SEW observes `FILE_ADDED` events; this preserves timing and
+guarantees a local backup on the card.
+
+If the camera is configured to write to the SD card (PC+Camera or Camera Only), SEW will no longer attempt blocking RAW downloads during the trigger loop. Instead SEW drains PTP events quickly so triggers remain on schedule and does not block on large USB transfers.
+
+Short guidance
+- If you want reliable, on-time sequences (1–2 s intervals): set **PC+Camera** or **Camera Only** on the camera. SEW will trigger on schedule and your images will be safe on the SD card.
+- If your camera is left in **PC Only** mode, expect slower operation and possible missed/dropped triggers while large RAW files are downloaded.
+
+
 ## Upgrading Solar Eclipse Workbench
 
 To upgrade Solar Eclipse Workbench to the latest version, activate your Python environment and run:
 
 ```bash
+cd
 source solareclipseworkbench/bin/activate
 pip install --upgrade solareclipseworkbench
 ```
@@ -240,6 +298,8 @@ pip show solareclipseworkbench
 - Start Solar Eclipse Workbench by executing the following commands:
 
 ```bash
+cd
+source solareclipseworkbench/bin/activate
 sew
 ```
 
@@ -247,10 +307,13 @@ sew
 
 ```bash
 # On macos, start the commands with sudo
+source solareclipseworkbench/bin/activate
 sudo sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
 sudo sew
 
 # In Linux or using WSL on Windows, start the command without sudo
+cd
+source solareclipseworkbench/bin/activate
 sew -d 2024-04-08 -lon -104.63525 -lat 24.01491 -alt 1877.3
 sew
 ```
@@ -463,6 +526,7 @@ The following cameras are tested:
 - Nikon Z8
 - Nikon Z6iii
 - Sony ILCE-7M3 (α7 III)
+- Sony ILCE-7R II (α7R II): Very slow, because it does not support the `PC+Camera` Save Destination mode, so every picture is downloaded over USB before the next one can be taken.  Expect a practical capture rate of no more than one picture every 10 seconds with this camera.
 
 It is possible to take pictures in burst mode.  The speed is limited by the speed of the camera (and card).
 
@@ -596,6 +660,7 @@ cd SolarEclipseWorkbench
 - Install the python environment by executing the following command in the Solar Eclipse Workbench directory:
 
 ```bash
+uv python install 3.11
 uv sync --group dev
 uv pip install PyObjC
 ```
@@ -619,6 +684,7 @@ cd SolarEclipseWorkbench
 - Install the python environment by executing the following command in the Solar Eclipse Workbench directory:
 
 ```bash
+uv python install 3.11
 uv sync --group dev
 ```
 
@@ -657,6 +723,7 @@ git clone https://github.com/AstroWimSara/SolarEclipseWorkbench.git
 
 ```bash
 cd SolarEclipseWorkbench
+uv python install 3.11
 uv sync --group dev
 ```
 
@@ -677,6 +744,12 @@ uv pip install pygobject
 
 ```bash
 uv run sew
+```
+
+## Upgrading all dependencies to the latest version
+
+```bash
+uv sync --upgrade
 ```
 
 ## Create and upload a new pip package

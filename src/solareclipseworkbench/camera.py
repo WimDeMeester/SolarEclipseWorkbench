@@ -7,6 +7,7 @@ import time
 import gphoto2
 import gphoto2 as gp
 from datetime import datetime
+import os
 
 from gphoto2 import Camera
 
@@ -258,16 +259,73 @@ class NikonCamera(GPhotoCameraAdapter):
 
 
 class SonyCamera(GPhotoCameraAdapter):
-    """Adapter specialized for Sony cameras (Alpha DSLR/mirrorless series).
+    """Camera adapter for Sony Alpha bodies in PC Remote mode.
 
-    Sony cameras exposed via gphoto2 use PTP/MTP and share many widget
-    names with Nikon (e.g. ``expprogram``, ``f-number``, ``autoiso``) but
-    differ in drive/capture-mode widget values and burst triggering.
+    Sony Alpha bodies save images to the SD card when 'Save Destination' is
+    set to 'PC+Camera' or 'Camera Only' in:
+
+        MENU → Network → PC Remote Settings → Save Destination
+
+    'PC+Camera' is recommended: every shot is written to the SD card
+    (guaranteed backup) AND a FILE_ADDED event fires over USB so SEW
+    can confirm the shot was taken.  No image download is attempted.
     """
 
     def __init__(self, gp_camera, name: str):
         super().__init__(gp_camera, name)
         self.vendor = 'Sony'
+        # Background downloader thread (started lazily)
+        self._bg_downloader = None
+
+    def disconnect(self) -> None:
+        """Disconnect; drain any queued camera events first."""
+        try:
+            context = gp.gp_context_new()
+            target = self._camera
+            _sony_drain_events(target, context)
+        except Exception:
+            logging.debug('SonyCamera.disconnect: event drain raised (non-fatal)')
+        # Stop background downloader if running
+        try:
+            if getattr(self, '_bg_downloader', None) is not None:
+                self._bg_downloader.stop()
+                self._bg_downloader.join(timeout=2.0)
+                self._bg_downloader = None
+        except Exception:
+            logging.debug('SonyCamera.disconnect: background downloader stop raised (non-fatal)')
+        try:
+            self._camera.exit()
+        except Exception:
+            pass
+        self._connected = False
+
+    def start_background_downloader(self) -> None:
+        """Start a background downloader thread that fetches FILE_ADDED paths.
+
+        The downloader attempts to download FILE_ADDED targets as they appear.
+        It will only perform downloads when it can acquire the per-camera USB
+        lock quickly — this avoids delaying scheduled shots.  Downloads are
+        written to `~/Pictures/SolarEclipseWorkbench`.
+        """
+        if self._bg_downloader is not None:
+            return
+        try:
+            ctx = gp.gp_context_new()
+            self._bg_downloader = _SonyBackgroundDownloader(self, ctx)
+            self._bg_downloader.daemon = True
+            self._bg_downloader.start()
+            logging.info('Sony background downloader started')
+        except Exception:
+            logging.exception('Failed to start Sony background downloader')
+
+    def stop_background_downloader(self) -> None:
+        if self._bg_downloader is None:
+            return
+        try:
+            self._bg_downloader.stop()
+            self._bg_downloader.join(timeout=2.0)
+        except Exception:
+            logging.debug('Error stopping Sony background downloader')
 
 
 
@@ -333,6 +391,94 @@ def _drain_camera_events(target, context, timeout_ms: int = 200, max_events: int
                 break
         except gphoto2.GPhoto2Error:
             break
+
+
+def _find_memory_card_choice(capture_target_widget) -> str:
+    """Return the choice string that represents the camera's memory card.
+
+    Scans all available choices for the ``capturetarget`` widget and returns the
+    first one whose label contains "card" or starts with "memory" (case-insensitive).
+    Falls back to choice index 1 when no card-like label is found, which is the
+    conventional position for "Memory card" on Canon and most Nikon bodies.
+    """
+    try:
+        n = gp.check_result(gp.gp_widget_count_choices(capture_target_widget))
+        for i in range(n):
+            choice = gp.check_result(gp.gp_widget_get_choice(capture_target_widget, i))
+            label = choice.lower()
+            if 'card' in label or label.startswith('memory'):
+                return choice
+        # Fallback: index 1 is the traditional "Memory card" position
+        if n > 1:
+            return gp.check_result(gp.gp_widget_get_choice(capture_target_widget, 1))
+        return gp.check_result(gp.gp_widget_get_choice(capture_target_widget, 0))
+    except gphoto2.GPhoto2Error:
+        # Ultimate fallback: return the literal string used by most cameras
+        return 'Memory card'
+
+
+def _find_closest_shutter_choice(widget, target_speed: str) -> Optional[str]:
+    """Return the widget choice string whose shutter speed is closest to *target_speed*.
+
+    *target_speed* can be a fraction string (e.g. ``"1/1250"``) or a whole number
+    (e.g. ``"2"`` for 2 s).  The function converts both *target_speed* and each
+    widget choice to seconds (as a float) and returns the choice with the smallest
+    absolute difference on a logarithmic scale (nearest stop).
+
+    Returns ``None`` when the widget has no parseable choices.
+    """
+    def _to_seconds(s: str) -> Optional[float]:
+        s = s.strip()
+        try:
+            if '/' in s:
+                num, den = s.split('/', 1)
+                return float(num) / float(den)
+            return float(s)
+        except (ValueError, ZeroDivisionError):
+            return None
+
+    target_secs = _to_seconds(target_speed)
+    if target_secs is None or target_secs <= 0:
+        return None
+
+    import math
+    best_choice = None
+    best_diff = float('inf')
+    try:
+        n = gp.check_result(gp.gp_widget_count_choices(widget))
+        for i in range(n):
+            choice = gp.check_result(gp.gp_widget_get_choice(widget, i))
+            secs = _to_seconds(choice)
+            if secs is None or secs <= 0:
+                continue
+            diff = abs(math.log(secs) - math.log(target_secs))
+            if diff < best_diff:
+                best_diff = diff
+                best_choice = choice
+    except gphoto2.GPhoto2Error:
+        pass
+    return best_choice
+
+
+def _find_capturemode_choice(widget, want_continuous: bool = False) -> Optional[str]:
+    """Return the choice string for single or continuous capture mode.
+
+    Scans all available choices of the ``capturemode`` widget and returns the
+    first one whose label contains 'single' (or 'continuous' when
+    *want_continuous* is True).  Returns None when no matching choice is found,
+    so the caller can skip setting the widget rather than sending an invalid
+    value that would cause the entire set_config transaction to fail.
+    """
+    keyword = 'continuous' if want_continuous else 'single'
+    try:
+        n = gp.check_result(gp.gp_widget_count_choices(widget))
+        for i in range(n):
+            choice = gp.check_result(gp.gp_widget_get_choice(widget, i))
+            if keyword in choice.lower():
+                return choice
+    except gphoto2.GPhoto2Error:
+        pass
+    return None
 
 
 # Maximum time a scheduled job may wait for the camera USB lock before it is
@@ -406,6 +552,96 @@ def _wait_for_capture_complete(target, context, timeout_ms: int = 3000, max_even
     _drain_camera_events(target, context, timeout_ms=200, max_events=10)
 
 
+def _sony_drain_events(target, context) -> None:
+    """Drain queued FILE_ADDED and property-change events from a Sony camera.
+
+    Sony cameras buffer FILE_ADDED events in the gphoto2 queue for several
+    seconds after trigger_capture.  This must be cleared before the next shot
+    or the queue grows unboundedly and gphoto2 may start dropping events.
+
+    Uses a 10 ms per-poll timeout so it returns in under 10 ms when the queue
+    is empty.  Images are NOT downloaded — they are already saved to the SD
+    card (PC Remote → Save Destination = PC+Camera or Camera Only).
+    """
+    for _ in range(60):
+        try:
+            event_type, _ = gp.check_result(
+                gp.gp_camera_wait_for_event(target, 10, context))
+        except gphoto2.GPhoto2Error:
+            break
+        if event_type == gp.GP_EVENT_TIMEOUT:
+            break
+
+
+class _SonyBackgroundDownloader(threading.Thread):
+    """Background thread that watches for FILE_ADDED and tries to download images.
+
+    Downloads are attempted only when the per-camera USB lock can be acquired
+    quickly; this reduces interference with scheduled trigger jobs.
+    """
+
+    def __init__(self, adapter: GPhotoCameraAdapter, context):
+        super().__init__()
+        self.adapter = adapter
+        self.context = context
+        self._stop = threading.Event()
+        self.save_dir = os.path.expanduser('~/Pictures/SolarEclipseWorkbench')
+        os.makedirs(self.save_dir, exist_ok=True)
+
+    def stop(self):
+        self._stop.set()
+
+    def join(self, timeout=None):
+        self.stop()
+        super().join(timeout)
+
+    def run(self):
+        target = self.adapter._camera if hasattr(self.adapter, '_camera') else self.adapter
+        ctx = self.context
+        # Maintain a set of filenames already present in save_dir to avoid redownloading
+        seen_on_disk = set(os.listdir(self.save_dir))
+        poll_interval_s = 0.6
+        while not self._stop.is_set():
+            # Sleep a short interval to avoid tight looping
+            time.sleep(poll_interval_s)
+            # Try to acquire USB lock very briefly; if busy, skip this cycle
+            acquired = False
+            try:
+                acquired = self.adapter._usb_lock.acquire(timeout=0.05)
+                if not acquired:
+                    continue
+                # List top-level files (walk one level) and try to download unseen files.
+                try:
+                    files = gp.check_result(gp.gp_camera_folder_list_files(target, "/", ctx))
+                    n = files.count()
+                    for i in range(n):
+                        name = files.get_name(i)
+                        if name in seen_on_disk:
+                            continue
+                        # Attempt download
+                        try:
+                            cam_file = gp.CameraFile()
+                            gp.check_result(
+                                gp.gp_camera_file_get(target, "/", name,
+                                                      gp.GP_FILE_TYPE_NORMAL, cam_file, ctx))
+                            save_path = os.path.join(self.save_dir, name)
+                            gp.check_result(gp.gp_file_save(cam_file, save_path))
+                            size = os.path.getsize(save_path)
+                            logging.info('Sony downloader saved %s (%d bytes)', save_path, size)
+                            seen_on_disk.add(name)
+                        except Exception as exc:
+                            logging.debug('Background downloader: download failed for %s: %s', name, exc)
+                except Exception:
+                    # listing may fail when camera hides filesystem; ignore and continue
+                    continue
+            finally:
+                if acquired:
+                    try:
+                        self.adapter._usb_lock.release()
+                    except Exception:
+                        pass
+
+
 @_serialised_on_camera
 def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
     """ Take a picture with the selected camera 
@@ -440,27 +676,61 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
         except gphoto2.GPhoto2Error:
             try:
                 capture_mode_widget = gp.check_result(gp.gp_widget_get_child_by_name(config, 'stillcapturemode'))
-                gp.gp_widget_set_value(capture_mode_widget, 0)  # 0 = Single Frame
+                gp.gp_widget_set_value(capture_mode_widget, '0')  # 0 = Single Frame
                 _set_gp_config(camera, config, context)
                 logging.debug('Ensured Nikon stillcapturemode is Single Frame (0) before take_picture')
             except gphoto2.GPhoto2Error as e:
                 logging.warning('Could not ensure Nikon single-frame mode before take_picture: %s', e)
 
     # For Sony cameras, ensure single-frame capture mode is active before taking
-    # a single picture; __adapt_camera_settings already queues capturemode=0 in
-    # the same set_config batch, so this is just a safety belt for models whose
-    # capturemode widget was not writable in the first batch.
+    # a single picture (separate set_config call so a bad capturemode value can
+    # never poison the ISO/shutter batch).
     if getattr(camera, 'vendor', None) == 'Sony':
         target = camera._camera if hasattr(camera, '_camera') else camera
         try:
-            capture_mode_widget = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
-            gp.gp_widget_set_value(capture_mode_widget, 0)  # 0 = Single
-            _set_gp_config(camera, config, context)
-            logging.debug('Ensured Sony capturemode is Single (0) before take_picture')
+            cfg2 = gp.check_result(gp.gp_camera_get_config(target, context))
+            capture_mode_widget = gp.check_result(gp.gp_widget_get_child_by_name(cfg2, 'capturemode'))
+            single_choice = _find_capturemode_choice(capture_mode_widget, want_continuous=False)
+            if single_choice is not None:
+                gp.gp_widget_set_value(capture_mode_widget, single_choice)
+                _set_gp_config(camera, cfg2, context)
+                logging.debug('Ensured Sony capturemode="%s" before take_picture', single_choice)
+            else:
+                logging.debug('Sony capturemode: no "single" choice found, leaving as-is')
         except gphoto2.GPhoto2Error as e:
             logging.warning('Could not ensure Sony single-frame mode before take_picture: %s', e)
 
     target = camera._camera if hasattr(camera, '_camera') else camera
+
+    # For Sony Alpha cameras, use trigger_capture as the primary path.
+    # gp_camera_capture(GP_CAPTURE_IMAGE) blocks until the file is fully written
+    # to the memory card (1-4 s for RAW), holding the USB lock the entire time
+    # and causing subsequent scheduled shots to drop.  trigger_capture sends the
+    # PTP InitiateCapture command and returns immediately; _wait_for_capture_complete
+    # then waits only for the CAPTURE_COMPLETE event (~100-500 ms, well before the
+    # card write finishes), so the lock is released much sooner.
+    # capturetarget was already set to "Memory card" by __adapt_camera_settings,
+    # so the camera saves to card regardless of which capture method is used.
+    if getattr(camera, 'vendor', None) == 'Sony':
+        # --- Pre-shot: drain stale events from previous shots ---
+        # Sony cameras buffer FILE_ADDED and property-change events in the
+        # gphoto2 queue for ~3 s after trigger_capture.  Draining at the start
+        # of each new shot keeps the queue from growing and takes <10 ms when
+        # empty.  Images are saved to the SD card (PC Remote → Save Destination
+        # = PC+Camera); no download is needed.
+        _sony_drain_events(target, context)
+
+        # Sony Alpha cameras never emit GP_EVENT_CAPTURE_COMPLETE; they use
+        # proprietary PTP event 0xc201.  Do NOT fall back to GP_CAPTURE_IMAGE:
+        # on Sony it always fails with -7 I/O problem AND breaks the USB
+        # connection, causing all subsequent shots in the sequence to get -52.
+        gp.check_result(gp.gp_camera_trigger_capture(target, context))
+        logging.debug('take_picture: Sony trigger_capture fired')
+        # Drain the initial property-change burst (~300 ms); first TIMEOUT fires
+        # at ~400 ms.  FILE_ADDED (~3 s) stays queued; picked up at the start
+        # of the next shot by _sony_drain_events above.
+        _drain_camera_events(target, context, timeout_ms=100, max_events=60)
+        return
 
     # Fire the shutter via trigger_capture (PTP InitiateCapture).  This is the
     # only path that guarantees the camera uses the USB-programmed ISO, shutter
@@ -522,22 +792,16 @@ def __adapt_camera_settings(camera, camera_settings):
         except gphoto2.GPhoto2Error:
             pass  # Not available on all bodies — safe to skip
     elif vendor == 'Sony':
-        # Sony Alpha cameras use 'expprogram' with string value "M" for Manual,
-        # matching the display value rather than a numeric code.
-        try:
-            exp_program = gp.check_result(gp.gp_widget_get_child_by_name(config, 'expprogram'))
-            gp.gp_widget_set_value(exp_program, "M")
-            logging.debug('Queued Sony expprogram=M (Manual) for next set_config')
-        except gphoto2.GPhoto2Error as e:
-            logging.warning('Could not queue Sony expprogram: %s', e)
-        # Ensure single-frame capture mode so burst settings from a previous
-        # take_burst call do not carry over to single shots.
-        try:
-            capture_mode_w = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
-            gp.gp_widget_set_value(capture_mode_w, 0)  # 0 = Single
-            logging.debug('Queued Sony capturemode=Single(0) for next set_config')
-        except gphoto2.GPhoto2Error:
-            pass  # Not all Sony bodies expose this widget — safe to skip
+        # 'expprogram' on Sony Alpha cameras is READ-ONLY: it mirrors the physical
+        # PASM dial and cannot be set via USB.  The user must set the dial to M
+        # before shooting.  We deliberately do NOT mutate it here — an invalid
+        # mutation in the batch could cause the entire gp_camera_set_config call
+        # to fail, taking ISO and shutter speed down with it.
+        #
+        # capturemode is handled separately in take_picture / take_burst with a
+        # dedicated set_config call using the correct choice string (e.g.
+        # "Single Shooting"), NOT '0' / '1' which would also poison the batch.
+        pass  # no vendor-specific batch mutations for Sony
 
     # --- Step 2: mutate ISO and shutter speed in memory, push all in one round-trip ---
     # This single set_config also delivers the exposure-mode change from step 1.
@@ -561,13 +825,42 @@ def __adapt_camera_settings(camera, camera_settings):
             except gphoto2.GPhoto2Error as e:
                 logging.debug('Could not disable Sony auto ISO: %s', e)
 
-    gp.gp_widget_set_value(
-        gp.check_result(gp.gp_widget_get_child_by_name(config, 'iso')), str(camera_settings.iso))
-    gp.gp_widget_set_value(
-        gp.check_result(gp.gp_widget_get_child_by_name(config, 'shutterspeed')),
-        str(camera_settings.shutter_speed))
+    try:
+        gp.gp_widget_set_value(
+            gp.check_result(gp.gp_widget_get_child_by_name(config, 'iso')), str(camera_settings.iso))
+    except gphoto2.GPhoto2Error as e:
+        logging.warning('Could not set ISO to %s: %s', camera_settings.iso, e)
 
-    # Push ISO + shutter speed together — one USB round-trip, no sleep needed.
+    try:
+        gp.gp_widget_set_value(
+            gp.check_result(gp.gp_widget_get_child_by_name(config, 'shutterspeed')),
+            str(camera_settings.shutter_speed))
+    except gphoto2.GPhoto2Error as e:
+        logging.warning('Could not set shutterspeed to %s: %s — trying closest available choice',
+                        camera_settings.shutter_speed, e)
+        try:
+            ss_widget = gp.check_result(gp.gp_widget_get_child_by_name(config, 'shutterspeed'))
+            closest = _find_closest_shutter_choice(ss_widget, camera_settings.shutter_speed)
+            if closest is not None:
+                gp.gp_widget_set_value(ss_widget, closest)
+                logging.warning('Using closest shutter speed choice: %s', closest)
+            else:
+                logging.warning('No suitable shutter speed choice found for %s', camera_settings.shutter_speed)
+        except gphoto2.GPhoto2Error as e2:
+            logging.warning('Could not set closest shutter speed: %s', e2)
+
+    # Always save to the camera's memory card, never to the computer.
+    # This must be re-asserted on every shot because some cameras (notably Sony Alpha
+    # via PTP) reset capturetarget to 'Internal RAM' when the USB session is re-used.
+    try:
+        capture_target_w = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturetarget'))
+        card_value = _find_memory_card_choice(capture_target_w)
+        gp.gp_widget_set_value(capture_target_w, card_value)
+        logging.debug('Asserted capturetarget="%s" before capture', card_value)
+    except gphoto2.GPhoto2Error:
+        pass  # Widget absent on some cameras — the init-time setting is sufficient
+
+    # Push ISO + shutter speed (+ capturetarget) together — one USB round-trip.
     _set_gp_config(target, config, context)
 
     # --- Step 3: aperture in an isolated round-trip ---
@@ -579,9 +872,21 @@ def __adapt_camera_settings(camera, camera_settings):
                 gp.check_result(gp.gp_widget_get_child_by_name(config, 'aperture')),
                 str(camera_settings.aperture))
         elif vendor in ('Nikon', 'Sony'):
-            gp.gp_widget_set_value(
-                gp.check_result(gp.gp_widget_get_child_by_name(config, 'f-number')),
-                str(camera_settings.aperture))
+            try:
+                f_widget = gp.check_result(gp.gp_widget_get_child_by_name(config, 'f-number'))
+                # Inspect choices to detect whether widget expects values like 'f/5.6'
+                try:
+                    n_choices = gp.check_result(gp.gp_widget_count_choices(f_widget))
+                    sample = gp.check_result(gp.gp_widget_get_choice(f_widget, 0)) if n_choices > 0 else ''
+                except Exception:
+                    sample = ''
+                ap_val = str(camera_settings.aperture)
+                if isinstance(sample, str) and sample.startswith('f/') and not ap_val.startswith('f/'):
+                    ap_val = f'f/{ap_val}'
+                gp.gp_widget_set_value(f_widget, ap_val)
+            except gphoto2.GPhoto2Error:
+                # f-number widget absent or not settable — ignore
+                raise
         _set_gp_config(target, config, context)
         logging.debug('Set aperture to %s', camera_settings.aperture)
     except gphoto2.GPhoto2Error:
@@ -682,14 +987,14 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         except gphoto2.GPhoto2Error:
             try:
                 capture_mode_reset = gp.check_result(gp.gp_widget_get_child_by_name(config_reset, 'stillcapturemode'))
-                gp.gp_widget_set_value(capture_mode_reset, 0)  # 0 = Single Frame
+                gp.gp_widget_set_value(capture_mode_reset, '0')  # 0 = Single Frame
                 _set_gp_config(camera, config_reset, context)
                 logging.debug('Reset Nikon stillcapturemode to Single Frame (0) after burst')
             except gphoto2.GPhoto2Error as e:
                 logging.warning('Could not reset Nikon capture mode to single after burst: %s', e)
         try:
             burst_number_reset = gp.check_result(gp.gp_widget_get_child_by_name(config_reset, 'burstnumber'))
-            gp.gp_widget_set_value(burst_number_reset, 1)
+            gp.gp_widget_set_value(burst_number_reset, '1')
             _set_gp_config(camera, config_reset, context)
             logging.debug('Reset Nikon burstnumber to 1 after burst')
         except gphoto2.GPhoto2Error as e:
@@ -700,12 +1005,17 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         n_frames = max(1, int(round(duration)))
         target = camera._camera if hasattr(camera, '_camera') else camera
 
-        # Switch to continuous capture mode
+        # Switch to continuous capture mode — look up the actual choice string so
+        # we never send an invalid value that would cause set_config to fail.
         try:
             capture_mode = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturemode'))
-            gp.gp_widget_set_value(capture_mode, 1)  # 1 = Continuous on most Sony bodies
-            _set_gp_config(camera, config, context)
-            logging.debug('Set Sony capturemode to Continuous (1) for burst')
+            continuous_choice = _find_capturemode_choice(capture_mode, want_continuous=True)
+            if continuous_choice is not None:
+                gp.gp_widget_set_value(capture_mode, continuous_choice)
+                _set_gp_config(camera, config, context)
+                logging.debug('Set Sony capturemode to "%s" for burst', continuous_choice)
+            else:
+                logging.debug('Sony capturemode: no "continuous" choice found, firing without mode change')
         except gphoto2.GPhoto2Error as e:
             logging.warning('Could not set Sony capturemode to Continuous: %s', e)
 
@@ -726,9 +1036,13 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         config_reset = gp.check_result(gp.gp_camera_get_config(target, context))
         try:
             capture_mode_reset = gp.check_result(gp.gp_widget_get_child_by_name(config_reset, 'capturemode'))
-            gp.gp_widget_set_value(capture_mode_reset, 0)  # 0 = Single
-            _set_gp_config(camera, config_reset, context)
-            logging.debug('Reset Sony capturemode to Single (0) after burst')
+            single_choice = _find_capturemode_choice(capture_mode_reset, want_continuous=False)
+            if single_choice is not None:
+                gp.gp_widget_set_value(capture_mode_reset, single_choice)
+                _set_gp_config(camera, config_reset, context)
+                logging.debug('Reset Sony capturemode to "%s" after burst', single_choice)
+            else:
+                logging.debug('Sony capturemode: no "single" choice found for reset after burst')
         except gphoto2.GPhoto2Error as e:
             logging.warning('Could not reset Sony capturemode to Single after burst: %s', e)
 
@@ -1057,9 +1371,10 @@ def get_camera(camera_name: str):
         # find the capture target config item (to save to the memory card)
         config = gp.check_result(gp.gp_camera_get_config(camera, context))
         capture_target = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturetarget'))
-        # set value
-        value = gp.check_result(gp.gp_widget_get_choice(capture_target, 1))
+        # set value — search for the memory-card entry by name, not by blind index
+        value = _find_memory_card_choice(capture_target)
         gp.gp_widget_set_value(capture_target, value)
+        logging.debug('Set capturetarget to "%s" for %s', value, camera_name)
         # set config
         gp.gp_camera_set_config(camera, config, context)
 
@@ -1140,8 +1455,10 @@ def get_camera_by_port(model_name: str, port: str, alias: Optional[str] = None) 
     try:
         config = gp.check_result(gp.gp_camera_get_config(camera, context))
         capture_target = gp.check_result(gp.gp_widget_get_child_by_name(config, 'capturetarget'))
-        value = gp.check_result(gp.gp_widget_get_choice(capture_target, 1))
+        # search for the memory-card entry by name, not by blind index
+        value = _find_memory_card_choice(capture_target)
         gp.gp_widget_set_value(capture_target, value)
+        logging.debug('Set capturetarget to "%s" for %s', value, display_name)
         gp.gp_camera_set_config(camera, config, context)
 
         try:
@@ -1424,7 +1741,12 @@ def get_battery_level(camera: Camera) -> str:
     """
 
     try:
-        return camera.get_config().get_child_by_name('batterylevel').get_value()
+        value = camera.get_config().get_child_by_name('batterylevel').get_value()
+        # gphoto2 reports 253 (0xFD) for Sony cameras (and some others) when the
+        # camera is powered via an AC adapter rather than a battery.
+        if str(value).rstrip('%') == '253':
+            return 'AC'
+        return str(value)
     except gphoto2.GPhoto2Error as e:
         if getattr(e, 'code', None) == -53:
             # -53: another process (e.g. ptpcamerad on macOS) has reclaimed the USB device.
@@ -1697,6 +2019,33 @@ def get_camera_dict(is_simulator: bool = False, alias_map: Optional[dict] = None
                 key, bare_key,
             )
 
+    # --- Deduplicate Sony (and other cameras) that appear twice ---
+    # gphoto2 exposes Sony cameras with PC Remote enabled at two USB interfaces:
+    #   "Model (Control)"  – the PC Remote / remote-shooting interface (full control)
+    #   "Model"            – the plain PTP/MTP interface (limited / no trigger_capture)
+    # Both end up as separate entries above.  We keep only the "(Control)" object,
+    # point the plain-name key at it too, and close the redundant PTP camera so
+    # it does not appear as a second entry in the camera overview.
+    import re as _re
+    for key in list(cameras.keys()):
+        bare = _re.sub(r'\s*\([^)]*\)\s*$', '', key).strip()
+        if bare != key and bare in cameras and cameras[bare] is not cameras[key]:
+            # key has a suffix (e.g. "(Control)"); bare is a separate object
+            control_cam = cameras[key]
+            plain_cam = cameras[bare]
+            logging.info(
+                'Deduplicating camera: "%s" and "%s" are the same physical camera. '
+                'Keeping "%s" (full-control interface) for both keys.',
+                key, bare, key,
+            )
+            # Close the redundant plain-PTP camera so its USB handle is freed
+            try:
+                plain_cam.exit()
+            except Exception:
+                pass
+            # Point the plain-name key at the control interface camera
+            cameras[bare] = control_cam
+
     return cameras
 
 
@@ -1826,6 +2175,11 @@ def main():
             # mirror_lock(camera_object, camera_settings)
 
             # take_picture(camera_object, camera_settings)
+            
+            time.sleep(1)
+            camera_settings = CameraSettings(camera[0], "1/400", "6.3", 400)
+            # take_bracket(camera_object, camera_settings, "+/- 1 2/3")
+            take_picture(camera_object, camera_settings)
 
             time.sleep(1)
             camera_settings = CameraSettings(camera[0], "1/4000", "5.6", 200)
@@ -1835,6 +2189,57 @@ def main():
 
         except gphoto2.GPhoto2Error:
             print("Could not connect to the camera.  Did you start Solar Eclipse Workbench in sudo mode?")
+
+
+def get_sony_save_destination(camera) -> str | None:
+    """Return the Sony PC-Remote 'Save Destination' value string, or None if not found.
+
+    This probes the camera config for widgets whose name/label contains
+    keywords like 'save' or 'dest' and returns the widget value (string).
+    Returns None when the widget is not exposed via gphoto2.
+    """
+    if camera is None:
+        return None
+    try:
+        ctx = gp.gp_context_new()
+        cfg = gp.check_result(gp.gp_camera_get_config(camera._camera if hasattr(camera, '_camera') else camera, ctx))
+    except Exception:
+        return None
+
+    KEYWORDS = ["save", "dest", "storage", "pc remote", "pcsave", "pc_save", "still img", "savemedia"]
+
+    def _walk(widget):
+        try:
+            wtype = gp.check_result(gp.gp_widget_get_type(widget))
+            name = gp.check_result(gp.gp_widget_get_name(widget))
+            label = gp.check_result(gp.gp_widget_get_label(widget))
+        except Exception:
+            return None
+        combined = (str(name) + " " + str(label)).lower()
+        # container types
+        if wtype in (gp.GP_WIDGET_WINDOW, gp.GP_WIDGET_SECTION, gp.GP_WIDGET_CONTAINER):
+            try:
+                n = gp.check_result(gp.gp_widget_count_children(widget))
+                for i in range(n):
+                    child = gp.check_result(gp.gp_widget_get_child(widget, i))
+                    v = _walk(child)
+                    if v is not None:
+                        return v
+            except Exception:
+                return None
+        else:
+            if any(kw in combined for kw in KEYWORDS):
+                try:
+                    val = gp.check_result(gp.gp_widget_get_value(widget))
+                    return str(val)
+                except Exception:
+                    return None
+        return None
+
+    try:
+        return _walk(cfg)
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":
