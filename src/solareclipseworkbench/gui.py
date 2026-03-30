@@ -1003,13 +1003,13 @@ class SolarEclipseController(Observer):
             return
 
         elif isinstance(changed_object, EclipsePopup):
-            eclipse_date = changed_object.eclipse_combobox.currentText()
-            # Only take the first 10 characters of the date string
-            eclipse_date = eclipse_date[:11]
+            # Extract the date portion from the combobox entry (format: "<date> - <type> - ...").
+            eclipse_text = changed_object.eclipse_combobox.currentText()
+            eclipse_date_str = eclipse_text.split(" - ", 1)[0]
             self.model.set_eclipse_date(
-                Time(datetime.datetime.strptime(eclipse_date, DATE_FORMATS[self.view.date_format])))
+                Time(datetime.datetime.strptime(eclipse_date_str, DATE_FORMATS[self.view.date_format])))
 
-            self.view.eclipse_date.setText(changed_object.eclipse_combobox.currentText()[:11])
+            self.view.eclipse_date.setText(eclipse_date_str)
             return
 
         elif isinstance(changed_object, SimulatorPopup):
