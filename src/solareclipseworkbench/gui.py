@@ -913,6 +913,13 @@ class SolarEclipseController(Observer):
         self.time_display_timer.setInterval(1000)
         self.time_display_timer.start()
 
+        # Update the eclipse visualization less frequently to save CPU/battery.
+        # The main time display remains at 1 Hz; the plot updates every 5 seconds.
+        self.visualization_timer = QTimer()
+        self.visualization_timer.timeout.connect(self.update_visualization)
+        self.visualization_timer.setInterval(5000)
+        self.visualization_timer.start()
+
         self.load_settings()
 
     def update_time(self):
@@ -939,13 +946,27 @@ class SolarEclipseController(Observer):
 
         self.update_jobs_countdown()
 
-        self.view.eclipse_visualization.plot(current_time_utc)
-
     def update_jobs_countdown(self):
         """ Update the countdown of the scheduled jobs. """
 
         if self.jobs_model:
             self.jobs_model.update_countdown()
+
+    def update_visualization(self):
+        """Update the eclipse visualization at a reduced frequency.
+
+        Uses the controller's current UTC time if available; falls back to
+        computing the current UTC time if needed.
+        """
+        try:
+            t = getattr(self.model, 'utc_time', None)
+            if t is None:
+                current_time_local = datetime.datetime.now()
+                t = current_time_local.astimezone(tz=datetime.timezone.utc)
+
+            self.view.eclipse_visualization.plot(t)
+        except Exception:
+            logging.exception("Error updating eclipse visualization")
 
     def do(self, actions):
         pass
