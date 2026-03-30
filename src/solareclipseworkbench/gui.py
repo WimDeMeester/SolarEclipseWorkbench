@@ -913,6 +913,13 @@ class SolarEclipseController(Observer):
         self.time_display_timer.setInterval(1000)
         self.time_display_timer.start()
 
+        # Update the eclipse visualization less frequently to save CPU/battery.
+        # The main time display remains at 1 Hz; the plot updates every 5 seconds.
+        self.visualization_timer = QTimer()
+        self.visualization_timer.timeout.connect(self.update_visualization)
+        self.visualization_timer.setInterval(5000)
+        self.visualization_timer.start()
+
         self.load_settings()
 
     def update_time(self):
@@ -939,13 +946,27 @@ class SolarEclipseController(Observer):
 
         self.update_jobs_countdown()
 
-        self.view.eclipse_visualization.plot(current_time_utc)
-
     def update_jobs_countdown(self):
         """ Update the countdown of the scheduled jobs. """
 
         if self.jobs_model:
             self.jobs_model.update_countdown()
+
+    def update_visualization(self):
+        """Update the eclipse visualization at a reduced frequency.
+
+        Uses the controller's current UTC time if available; falls back to
+        computing the current UTC time if needed.
+        """
+        try:
+            t = getattr(self.model, 'utc_time', None)
+            if t is None:
+                current_time_local = datetime.datetime.now()
+                t = current_time_local.astimezone(tz=datetime.timezone.utc)
+
+            self.view.eclipse_visualization.plot(t)
+        except Exception:
+            logging.exception("Error updating eclipse visualization")
 
     def do(self, actions):
         pass
@@ -982,13 +1003,13 @@ class SolarEclipseController(Observer):
             return
 
         elif isinstance(changed_object, EclipsePopup):
-            eclipse_date = changed_object.eclipse_combobox.currentText()
-            # Only take the first 10 characters of the date string
-            eclipse_date = eclipse_date[:11]
+            # Extract the date portion from the combobox entry (format: "<date> - <type> - ...").
+            eclipse_text = changed_object.eclipse_combobox.currentText()
+            eclipse_date_str = eclipse_text.split(" - ", 1)[0]
             self.model.set_eclipse_date(
-                Time(datetime.datetime.strptime(eclipse_date, DATE_FORMATS[self.view.date_format])))
+                Time(datetime.datetime.strptime(eclipse_date_str, DATE_FORMATS[self.view.date_format])))
 
-            self.view.eclipse_date.setText(changed_object.eclipse_combobox.currentText()[:11])
+            self.view.eclipse_date.setText(eclipse_date_str)
             return
 
         elif isinstance(changed_object, SimulatorPopup):
@@ -1507,10 +1528,34 @@ class SimulatorPopup(QWidget, Observable):
                 self.before_after_combobox.setCurrentText("before")
 
         self.reference_moment_combobox = QComboBox()
-        self.reference_moment_combobox.addItems(REFERENCE_MOMENTS)
 
+        # Populate the reference-moment combobox based on the model's computed reference moments.
+        # If a moment is not present in the model (e.g. no C2/C3 for partial eclipses, or no C1/C4/MAX
+        # for no-eclipse), it will not be offered as a simulation start point.
+        model_ref = getattr(observer.model, 'reference_moments', None)
+        if model_ref:
+            options = []
+            for key in ["C1", "C2", "MAX", "C3", "C4", "sunset", "sunrise"]:
+                if key in model_ref:
+                    options.append(key)
+            # If nothing was detected (defensive), fall back to the full list
+            if not options:
+                options = list(REFERENCE_MOMENTS)
+            self.reference_moment_combobox.addItems(options)
+        else:
+            # No reference moments computed yet; show full list so the user can pick (or compute moments first)
+            self.reference_moment_combobox.addItems(REFERENCE_MOMENTS)
+
+        # Restore previously chosen simulator reference moment if still available, otherwise choose a sensible default
         if observer.sim_reference_moment:
-            self.reference_moment_combobox.setCurrentText(observer.sim_reference_moment)
+            available = [self.reference_moment_combobox.itemText(i) for i in range(self.reference_moment_combobox.count())]
+            if observer.sim_reference_moment in available:
+                self.reference_moment_combobox.setCurrentText(observer.sim_reference_moment)
+            else:
+                if "MAX" in available:
+                    self.reference_moment_combobox.setCurrentText("MAX")
+                elif available:
+                    self.reference_moment_combobox.setCurrentIndex(0)
 
         layout = QVBoxLayout()
 
