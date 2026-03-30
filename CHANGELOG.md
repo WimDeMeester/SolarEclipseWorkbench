@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.7.1] - 2026-03-30
+
+### Changed
+- **Eclipse visualization update rate reduced**: The `EclipsePlotWidget` and its
+  controller now update the plotted Sun & Moon geometry every 5 seconds (instead of
+  every 1 second). A dedicated 5 s timer drives the plot while the on-screen clock
+  continues to update at 1 Hz. This reduces CPU usage and battery drain during
+  live observation.
+
+### Fixed
+- **Eclipse date parsing**: Prevent a crash when selecting an eclipse in locales that use longer month names (for example French "août"). The GUI now extracts the date portion from the eclipse combobox by splitting on " - " instead of using a fixed-width slice, avoiding truncated years and `ValueError` from `strptime`.
+
+- **Starting time (simulation)**: The "Starting time" dialog now omits reference moments that are not available for the chosen location/date (for example, `C2`/`C3` are not offered for partial eclipses, and `C1`/`C4`/`MAX` are not offered when no eclipse occurs). This prevents selecting an invalid simulation start relative to a nonexistent contact.
+
 ## [1.7.0] - 2026-03-28
 
 ### Added
