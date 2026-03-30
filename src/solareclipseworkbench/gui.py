@@ -1528,10 +1528,34 @@ class SimulatorPopup(QWidget, Observable):
                 self.before_after_combobox.setCurrentText("before")
 
         self.reference_moment_combobox = QComboBox()
-        self.reference_moment_combobox.addItems(REFERENCE_MOMENTS)
 
+        # Populate the reference-moment combobox based on the model's computed reference moments.
+        # If a moment is not present in the model (e.g. no C2/C3 for partial eclipses, or no C1/C4/MAX
+        # for no-eclipse), it will not be offered as a simulation start point.
+        model_ref = getattr(observer.model, 'reference_moments', None)
+        if model_ref:
+            options = []
+            for key in ["C1", "C2", "MAX", "C3", "C4", "sunset", "sunrise"]:
+                if key in model_ref:
+                    options.append(key)
+            # If nothing was detected (defensive), fall back to the full list
+            if not options:
+                options = list(REFERENCE_MOMENTS)
+            self.reference_moment_combobox.addItems(options)
+        else:
+            # No reference moments computed yet; show full list so the user can pick (or compute moments first)
+            self.reference_moment_combobox.addItems(REFERENCE_MOMENTS)
+
+        # Restore previously chosen simulator reference moment if still available, otherwise choose a sensible default
         if observer.sim_reference_moment:
-            self.reference_moment_combobox.setCurrentText(observer.sim_reference_moment)
+            available = [self.reference_moment_combobox.itemText(i) for i in range(self.reference_moment_combobox.count())]
+            if observer.sim_reference_moment in available:
+                self.reference_moment_combobox.setCurrentText(observer.sim_reference_moment)
+            else:
+                if "MAX" in available:
+                    self.reference_moment_combobox.setCurrentText("MAX")
+                elif available:
+                    self.reference_moment_combobox.setCurrentIndex(0)
 
         layout = QVBoxLayout()
 
