@@ -676,7 +676,7 @@ def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
         except gphoto2.GPhoto2Error:
             try:
                 capture_mode_widget = gp.check_result(gp.gp_widget_get_child_by_name(config, 'stillcapturemode'))
-                gp.gp_widget_set_value(capture_mode_widget, '0')  # 0 = Single Frame
+                gp.gp_widget_set_value(capture_mode_widget, 0)  # 0 = Single Frame
                 _set_gp_config(camera, config, context)
                 logging.debug('Ensured Nikon stillcapturemode is Single Frame (0) before take_picture')
             except gphoto2.GPhoto2Error as e:
@@ -987,14 +987,14 @@ def take_burst(camera: Camera, camera_settings: CameraSettings, duration: float)
         except gphoto2.GPhoto2Error:
             try:
                 capture_mode_reset = gp.check_result(gp.gp_widget_get_child_by_name(config_reset, 'stillcapturemode'))
-                gp.gp_widget_set_value(capture_mode_reset, '0')  # 0 = Single Frame
+                gp.gp_widget_set_value(capture_mode_reset, 0)  # 0 = Single Frame
                 _set_gp_config(camera, config_reset, context)
                 logging.debug('Reset Nikon stillcapturemode to Single Frame (0) after burst')
             except gphoto2.GPhoto2Error as e:
                 logging.warning('Could not reset Nikon capture mode to single after burst: %s', e)
         try:
             burst_number_reset = gp.check_result(gp.gp_widget_get_child_by_name(config_reset, 'burstnumber'))
-            gp.gp_widget_set_value(burst_number_reset, '1')
+            gp.gp_widget_set_value(burst_number_reset, 1)
             _set_gp_config(camera, config_reset, context)
             logging.debug('Reset Nikon burstnumber to 1 after burst')
         except gphoto2.GPhoto2Error as e:
