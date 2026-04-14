@@ -642,6 +642,85 @@ class _SonyBackgroundDownloader(threading.Thread):
                         pass
 
 
+class LiveViewThread(threading.Thread):
+    """Background thread that periodically fetches a live-view preview frame.
+
+    Tries to acquire the camera's USB lock with a short timeout.  When the
+    lock is held by a scheduled shot, the frame is silently skipped.  The
+    caller-supplied *frame_callback* is invoked on this worker thread with the
+    raw JPEG bytes of each successfully obtained preview frame.
+
+    Parameters
+    ----------
+    camera : GPhotoCameraAdapter or equivalent
+        Must have ``_camera`` and ``_usb_lock`` attributes.
+    frame_callback : callable[[bytes], None]
+        Called with the JPEG preview bytes each time a frame is successfully
+        captured.  Must be thread-safe (e.g. use a queue.Queue to forward
+        frames to the GUI thread).
+    interval_s : float
+        Interval between preview captures in seconds.  Default 1.0.
+    lock_timeout : float
+        Maximum seconds to wait for the USB lock before skipping a frame.
+        Default 0.05 (50 ms).
+    """
+
+    def __init__(self, camera, frame_callback, interval_s: float = 1.0, lock_timeout: float = 0.05):
+        super().__init__(daemon=True)
+        self._camera = camera
+        self._frame_callback = frame_callback
+        self._interval_s = interval_s
+        self._lock_timeout = lock_timeout
+        self._stop_event = threading.Event()
+        self._paused = threading.Event()
+
+    def stop(self):
+        """Signal the thread to stop and wait briefly for it to exit."""
+        self._stop_event.set()
+
+    def pause(self):
+        """Suspend preview capture without stopping the thread."""
+        self._paused.set()
+
+    def resume(self):
+        """Resume suspended preview capture."""
+        self._paused.clear()
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused.is_set()
+
+    def run(self):
+        target = self._camera._camera if hasattr(self._camera, '_camera') else self._camera
+        context = gp.gp_context_new()
+
+        while not self._stop_event.wait(self._interval_s):
+            if self._paused.is_set():
+                continue
+
+            acquired = False
+            try:
+                acquired = self._camera._usb_lock.acquire(timeout=self._lock_timeout)
+                if not acquired:
+                    logging.debug('LiveViewThread: USB lock busy, skipping frame')
+                    continue
+
+                cam_file = gp.CameraFile()
+                gp.check_result(gp.gp_camera_capture_preview(target, cam_file, context))
+                file_data = gp.check_result(gp.gp_file_get_data_and_size(cam_file))
+                self._frame_callback(bytes(file_data))
+            except gphoto2.GPhoto2Error as exc:
+                logging.debug('LiveViewThread: preview capture failed: %s', exc)
+            except Exception:
+                logging.exception('LiveViewThread: unexpected error')
+            finally:
+                if acquired:
+                    try:
+                        self._camera._usb_lock.release()
+                    except Exception:
+                        pass
+
+
 @_serialised_on_camera
 def take_picture(camera: Camera, camera_settings: CameraSettings) -> None:
     """ Take a picture with the selected camera 
