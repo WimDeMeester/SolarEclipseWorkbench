@@ -18,8 +18,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     firing the frame is silently skipped, so **shot timing is never affected**.
   - The live view image is transferred as a small JPEG thumbnail only; the camera still saves
     full-resolution photos directly to its SD card as usual.
-  - **Auto-pause during totality**: the preview pauses automatically when the current time
-    enters the C2–C3 window, and resumes automatically at C3.  A yellow status banner in the
+  - **Auto-pause during totality**: the preview pauses automatically 15 seconds
+    before C2 and resumes 15 seconds after C3, giving scheduled shots uncontested
+    USB access during the critical totality window.  A yellow status banner in the
     window indicates the paused state.
   - A **"Disable / Enable Live View"** toggle button in the window lets the user turn the
     preview off or on at any time — before, during, or after totality — without stopping the

@@ -462,7 +462,7 @@ The functionality of the toolbar buttons is as follows (from left to right):
 - The live view is intended to help you verify that the Sun is still in the frame and remains in focus without having to stop the script, realign the telescope, and restart.
 - The preview image uses gphoto2's `capture_preview` command.  This transfers a small JPEG thumbnail over USB and does **not** save anything to disk.  The camera continues to store actual eclipse photos directly to its SD card as scheduled.
 - **USB lock safety**: before each preview frame the thread tries to acquire the camera's USB lock with a 50 ms timeout.  If a scheduled shot is firing at that exact moment, the preview frame is silently skipped.  This guarantees that shot timing is never compromised by live view.
-- **During totality (C2 → C3)** the preview is automatically paused so the USB bus is entirely free for the closely-spaced shots in the script.  The window shows a yellow banner while paused; preview resumes automatically at C3.
+- **During totality (C2−15s → C3+15s)** the preview is automatically paused so the USB bus is entirely free for the closely-spaced shots in the script.  The pause starts 15 seconds before C2 and the preview resumes 15 seconds after C3.  The window shows a yellow banner while paused.
 - **Toggle button**: the "Disable / Enable Live View" button in the window lets you turn the preview off or on at any time — before, during, or after totality — without stopping the script or closing the window.
 - If no camera is connected when the Live View button is clicked, a warning dialog is shown.
 

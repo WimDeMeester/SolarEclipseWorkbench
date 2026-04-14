@@ -953,15 +953,16 @@ class SolarEclipseController(Observer):
         self.view.update_time(current_time_local, current_time_utc, countdown_c1, countdown_c2, countdown_max,
                               countdown_c3, countdown_c4, countdown_sunrise, countdown_sunset)
 
-        # Auto-pause live view during totality (C2 → C3) so scheduled shots
-        # have uncontested access to the USB bus.
+        # Auto-pause live view 15 s before C2 until 15 s after C3 so scheduled
+        # shots around second and third contact have uncontested USB access.
         if self._live_view_window is not None:
             c2 = self.model.c2_info
             c3 = self.model.c3_info
+            _MARGIN = datetime.timedelta(seconds=15)
             in_totality = (
                 c2 is not None
                 and c3 is not None
-                and c2.time_utc <= current_time_utc <= c3.time_utc
+                and (c2.time_utc - _MARGIN) <= current_time_utc <= (c3.time_utc + _MARGIN)
             )
             self._live_view_window.set_totality_paused(in_totality)
 
