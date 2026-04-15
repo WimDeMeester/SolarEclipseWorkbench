@@ -25,6 +25,7 @@
       - [Interrupting scheduled jobs](#interrupting-scheduled-jobs)
       - [Datetime format](#datetime-format)
       - [Saving settings](#saving-settings)
+      - [Live view](#live-view)
   - [Running the Configuration Wizard](#running-the-configuration-wizard)
   - [USB GPS device](#usb-gps-device)
   - [Using two cameras of the same model, or one camera with multiple setups](#using-two-cameras-of-the-same-model-or-one-camera-with-multiple-setups)
@@ -94,12 +95,30 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libxkbcomm
 sudo apt-get install gphoto2 libgphoto2-dev python3-gphoto2
 ```
 
-- Make sure that gvfs is not started automatically
+- Make sure that gvfs is not started automatically. Use `systemctl --user mask` to properly disable the gvfs gphoto2 services. **Do not use `chmod -x`** — removing the execute bit causes the Files (Nautilus) application to hang on open because GVFS still attempts to launch the binaries and waits for a timeout before giving up.
 
-```bash
-sudo chmod -x /usr/lib/gvfs/gvfs-gphoto2-volume-monitor
-sudo chmod -x /usr/lib/gvfs/gvfsd-gphoto2
-```
+  If you previously used `chmod -x`, first restore the execute bits:
+
+  ```bash
+  sudo chmod +x /usr/lib/gvfs/gvfs-gphoto2-volume-monitor
+  sudo chmod +x /usr/lib/gvfs/gvfsd-gphoto2
+  ```
+
+  Then mask the systemd user services so they are never started:
+
+  ```bash
+  systemctl --user mask gvfs-gphoto2-volume-monitor.service
+  systemctl --user mask gvfsd-gphoto2.service
+  ```
+
+  To verify:
+
+  ```bash
+  systemctl --user status gvfs-gphoto2-volume-monitor.service
+  systemctl --user status gvfsd-gphoto2.service
+  ```
+
+  Both should show `masked`.
 
 - Install `gdal-config`, required by `geopandas` (especially on Raspberry Pi):
 
@@ -438,6 +457,18 @@ The functionality of the toolbar buttons is as follows (from left to right):
 - The standard settings framework of `PyQt6` (`QSettings`) will be used: it stores the settings as `~/.SolarEclipseWorkbench.ini` (a hidden file in your home directory).
 - Next time you open the UI, this settings file will be loaded and the specified data will be made available in the UI.
 - In case command line arguments are used to open the UI, these take priority over the values from the settings file.
+
+#### Live view
+
+- When pressing the **"Live View"** icon (rightmost toolbar button), a floating preview window opens showing a live image from the connected camera, refreshed once per second.
+- The live view is intended to help you verify that the Sun is still in the frame and remains in focus without having to stop the script, realign the telescope, and restart.
+- The preview image uses gphoto2's `capture_preview` command.  This transfers a small JPEG thumbnail over USB and does **not** save anything to disk.  The camera continues to store actual eclipse photos directly to its SD card as scheduled.
+- **USB lock safety**: before each preview frame the thread tries to acquire the camera's USB lock with a 50 ms timeout.  If a scheduled shot is firing at that exact moment, the preview frame is silently skipped.  This guarantees that shot timing is never compromised by live view.
+- **During totality (C2−15s → C3+15s)** the preview is automatically paused so the USB bus is entirely free for the closely-spaced shots in the script.  The pause starts 15 seconds before C2 and the preview resumes 15 seconds after C3.  The window shows a yellow banner while paused.
+- **Toggle button**: the "Disable / Enable Live View" button in the window lets you turn the preview off or on at any time — before, during, or after totality — without stopping the script or closing the window.
+- If no camera is connected when the Live View button is clicked, a warning dialog is shown.
+
+> **Note**: Live view via gphoto2 is tested on the Nikon Z8.  Support on other bodies depends on whether their gphoto2 driver implements `capture_preview`.  Canon EOS bodies and most modern Nikon and Sony Alpha bodies support it; some entry-level or older bodies do not.
 
 ## Running the Configuration Wizard
 

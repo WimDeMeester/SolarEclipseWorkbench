@@ -195,6 +195,43 @@ class VirtualCamera(BaseCamera):
         # mirror gphoto Camera.exit()
         self.disconnect()
 
+    def capture_preview(self) -> bytes:
+        """Return a synthetic 640×480 grey JPEG frame for simulator mode.
+
+        Uses PyQt6 (a hard project dependency) so no extra packages are
+        needed.  The frame contains the current timestamp so the preview
+        window shows visible activity.
+        """
+        import datetime as _dt
+        from PyQt6.QtCore import QBuffer, QIODevice
+        from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPen
+
+        width, height = 640, 480
+        img = QImage(width, height, QImage.Format.Format_RGB888)
+        img.fill(QColor(30, 30, 30))
+
+        painter = QPainter(img)
+        # Crosshair (same style as LiveViewWindow)
+        pen = QPen(QColor(0, 80, 255))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        cx, cy = width // 2, height // 2
+        painter.drawLine(cx, 0, cx, height)
+        painter.drawLine(0, cy, width, cy)
+
+        # Informational text
+        painter.setPen(QPen(QColor(180, 180, 180)))
+        painter.setFont(QFont("monospace", 11))
+        ts = _dt.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        painter.drawText(10, 28, f"VirtualCamera  {ts}")
+        painter.drawText(10, 52, "[ simulator mode — no physical camera ]")
+        painter.end()
+
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.ReadWrite)
+        img.save(buf, "JPEG")
+        return bytes(buf.data())
+
 
 class GPhotoCameraAdapter(BaseCamera):
     """Adapter that wraps a gphoto2 Camera object and exposes a
@@ -638,6 +675,101 @@ class _SonyBackgroundDownloader(threading.Thread):
                 if acquired:
                     try:
                         self.adapter._usb_lock.release()
+                    except Exception:
+                        pass
+
+
+class LiveViewThread(threading.Thread):
+    """Background thread that periodically fetches a live-view preview frame.
+
+    Tries to acquire the camera's USB lock with a short timeout.  When the
+    lock is held by a scheduled shot, the frame is silently skipped.  The
+    caller-supplied *frame_callback* is invoked on this worker thread with the
+    raw JPEG bytes of each successfully obtained preview frame.
+
+    Parameters
+    ----------
+    camera : GPhotoCameraAdapter or equivalent
+        Must have ``_camera`` and ``_usb_lock`` attributes.
+    frame_callback : callable[[bytes], None]
+        Called with the JPEG preview bytes each time a frame is successfully
+        captured.  Must be thread-safe (e.g. use a queue.Queue to forward
+        frames to the GUI thread).
+    interval_s : float
+        Interval between preview captures in seconds.  Default 1.0.
+    lock_timeout : float
+        Maximum seconds to wait for the USB lock before skipping a frame.
+        Default 0.05 (50 ms).
+    """
+
+    def __init__(self, camera, frame_callback, interval_s: float = 1.0, lock_timeout: float = 0.05):
+        super().__init__(daemon=True)
+        self._camera = camera
+        self._frame_callback = frame_callback
+        self._interval_s = interval_s
+        self._lock_timeout = lock_timeout
+        self._stop_event = threading.Event()
+        self._paused = threading.Event()
+
+    def stop(self):
+        """Signal the thread to stop and wait briefly for it to exit."""
+        self._stop_event.set()
+
+    def pause(self):
+        """Suspend preview capture without stopping the thread."""
+        self._paused.set()
+
+    def resume(self):
+        """Resume suspended preview capture."""
+        self._paused.clear()
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused.is_set()
+
+    def run(self):
+        # If the camera provides a capture_preview() method (e.g. VirtualCamera
+        # in simulator mode), use that path — no gphoto2 calls or USB lock needed.
+        _has_virtual_preview = callable(getattr(self._camera, 'capture_preview', None))
+
+        target = None
+        context = None
+        if not _has_virtual_preview:
+            target = self._camera._camera if hasattr(self._camera, '_camera') else self._camera
+            context = gp.gp_context_new()
+
+        while not self._stop_event.wait(self._interval_s):
+            if self._paused.is_set():
+                continue
+
+            if _has_virtual_preview:
+                try:
+                    jpeg_bytes = self._camera.capture_preview()
+                    if jpeg_bytes:
+                        self._frame_callback(jpeg_bytes)
+                except Exception:
+                    logging.exception('LiveViewThread: virtual preview failed')
+                continue
+
+            acquired = False
+            try:
+                acquired = self._camera._usb_lock.acquire(timeout=self._lock_timeout)
+                if not acquired:
+                    logging.debug('LiveViewThread: USB lock busy, skipping frame')
+                    continue
+
+                cam_file = gp.CameraFile()
+                gp.check_result(gp.gp_camera_capture_preview(target, cam_file, context))
+                file_data = gp.check_result(gp.gp_file_get_data_and_size(cam_file))
+                self._frame_callback(bytes(file_data))
+            except gphoto2.GPhoto2Error as exc:
+                logging.debug('LiveViewThread: preview capture failed: %s', exc)
+            except Exception:
+                logging.exception('LiveViewThread: unexpected error')
+            finally:
+                if acquired:
+                    try:
+                        self._camera._usb_lock.release()
                     except Exception:
                         pass
 

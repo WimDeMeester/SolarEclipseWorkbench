@@ -9,6 +9,7 @@ import datetime
 import logging
 import math
 import os.path
+import queue
 import sys
 import time
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ import numpy as np
 import pandas as pd
 import pytz
 from PyQt6.QtCore import QTimer, QRect, Qt, QAbstractTableModel, QModelIndex, QSettings, pyqtSignal
-from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent
+from PyQt6.QtGui import QIcon, QAction, QIntValidator, QCloseEvent, QPixmap, QImage, QPainter, QPen, QColor
 from PyQt6.QtWidgets import QMainWindow, QApplication, QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout, \
     QGroupBox, QComboBox, QPushButton, QLineEdit, QFileDialog, QScrollArea, QTableView, QMessageBox
 from PyQt6 import QtWidgets
@@ -39,7 +40,7 @@ from skyfield.api import load, wgs84
 import threading
 
 from solareclipseworkbench.camera import get_camera_dict, get_battery_level, get_free_space, get_space, \
-    get_shooting_mode, get_focus_mode, set_time, CameraSettings
+    get_shooting_mode, get_focus_mode, set_time, CameraSettings, LiveViewThread
 from solareclipseworkbench.observer import Observer, Observable
 from solareclipseworkbench.qt_utils import apply_system_color_scheme
 from solareclipseworkbench.reference_moments import calculate_reference_moments, ReferenceMomentInfo
@@ -324,6 +325,7 @@ class SolarEclipseView(QMainWindow, Observable):
         self.shutdown_scheduler_action = QAction("Stop", self)
         self.datetime_format_action = QAction("Datetime format", self)
         self.save_action = QAction("Save", self)
+        self.live_view_action = QAction("Live View", self)
 
         self.place_time_frame = QFrame()
 
@@ -692,6 +694,13 @@ class SolarEclipseView(QMainWindow, Observable):
         self.save_action.triggered.connect(self.on_toolbar_button_click)
         self.toolbar.addAction(self.save_action)
 
+        # Live View
+
+        self.live_view_action.setStatusTip("Open live view window (1 fps preview from camera)")
+        self.live_view_action.setIcon(QIcon(str(ICON_PATH / "camera.png")))
+        self.live_view_action.triggered.connect(self.on_toolbar_button_click)
+        self.toolbar.addAction(self.live_view_action)
+
     def on_toolbar_button_click(self):
         """ Action triggered when a toolbar button is clicked."""
 
@@ -924,6 +933,8 @@ class SolarEclipseController(Observer):
         self.visualization_timer.setInterval(5000)
         self.visualization_timer.start()
 
+        self._live_view_window: Union[LiveViewWindow, None] = None
+
         self.load_settings()
 
     def update_time(self):
@@ -945,6 +956,19 @@ class SolarEclipseController(Observer):
 
         self.view.update_time(current_time_local, current_time_utc, countdown_c1, countdown_c2, countdown_max,
                               countdown_c3, countdown_c4, countdown_sunrise, countdown_sunset)
+
+        # Auto-pause live view 15 s before C2 until 15 s after C3 so scheduled
+        # shots around second and third contact have uncontested USB access.
+        if self._live_view_window is not None:
+            c2 = self.model.c2_info
+            c3 = self.model.c3_info
+            _MARGIN = datetime.timedelta(seconds=15)
+            in_totality = (
+                c2 is not None
+                and c3 is not None
+                and (c2.time_utc - _MARGIN) <= current_time_utc <= (c3.time_utc + _MARGIN)
+            )
+            self._live_view_window.set_totality_paused(in_totality)
 
         # self.view.eclipse_visualization.plot(current_time_utc)    FIXME
 
@@ -1066,6 +1090,10 @@ class SolarEclipseController(Observer):
 
         elif isinstance(changed_object, QCloseEvent):
 
+            if self._live_view_window is not None:
+                self._live_view_window.close()
+                self._live_view_window = None
+
             if self.model.camera_overview.camera_overview_dict:
                 cameras = self.model.camera_overview.camera_overview_dict.values()
 
@@ -1185,6 +1213,9 @@ class SolarEclipseController(Observer):
         elif text == "Save":
             self.view.save_settings()
 
+        elif text == "Live View":
+            self._open_live_view()
+
     def sync_camera_time(self):
         """ Set the time of all connected cameras to the time of the computer."""
 
@@ -1220,6 +1251,63 @@ class SolarEclipseController(Observer):
                 "One or more cameras require attention before shooting:\n\n"
                 + "\n\n".join(f"\u26a0\ufe0f  {w}" for w in warnings)
             )
+
+    def _open_live_view(self):
+        """Open (or bring to front) the live view window.
+
+        When exactly one real camera is connected it is used directly.
+        When multiple real cameras are connected a small selection dialog
+        is shown so the user can pick which one to preview.
+        Shows a warning when no real camera is connected.
+        """
+        # If window already exists, bring it to the front
+        if self._live_view_window is not None and self._live_view_window.isVisible():
+            self._live_view_window.activateWindow()
+            self._live_view_window.raise_()
+            return
+
+        # Collect all real gphoto cameras (deduplicated by object identity).
+        # Use cam.name as the display label: when an alias is configured it is
+        # set to the primary alias (i.e. the name used in scripts); when no alias
+        # is configured it falls back to the gphoto2 model name.
+        cam_dict = getattr(self.model.camera_overview, 'camera_overview_dict', None) or {}
+        from solareclipseworkbench.camera import GPhotoCameraAdapter, VirtualCamera
+        seen_ids: set = set()
+        real_cameras: list = []  # list of (display_name, camera) tuples
+        for cam in cam_dict.values():
+            if isinstance(cam, (GPhotoCameraAdapter, VirtualCamera)) and id(cam) not in seen_ids:
+                seen_ids.add(id(cam))
+                real_cameras.append((cam.name, cam))
+
+        if not real_cameras:
+            QMessageBox.warning(
+                self.view,
+                "No Camera Connected",
+                "Live view requires a connected camera.\n\n"
+                "Click the Camera(s) button first to detect connected cameras.\n"
+                "In simulator mode the VirtualCamera is also supported."
+            )
+            return
+
+        if len(real_cameras) == 1:
+            camera = real_cameras[0][1]
+        else:
+            # Ask the user which camera to preview
+            names = [name for name, _ in real_cameras]
+            chosen, ok = QtWidgets.QInputDialog.getItem(
+                self.view,
+                "Select Camera for Live View",
+                "Camera:",
+                names,
+                0,
+                False,
+            )
+            if not ok:
+                return
+            camera = dict(real_cameras)[chosen]
+
+        self._live_view_window = LiveViewWindow(camera, parent=None)
+        self._live_view_window.show()
 
     def load_settings(self):
         """ Load the UI settings.
@@ -1952,6 +2040,171 @@ class EclipsePlotWidget(QtWidgets.QWidget):
     #         ("W", (-1.12 if not self.east_left else +1.12, 0)),
     #     ]:
     #         self.ax.text(x, y, label, ha="center", va="center", fontsize=10, color="dimgray")
+
+
+class LiveViewWindow(QWidget):
+    """Floating window that shows a live-view preview from a gphoto2 camera.
+
+    A background ``LiveViewThread`` grabs one preview frame per second.  When
+    the camera USB lock is held by a scheduled shot the frame is silently
+    skipped so timing accuracy is never compromised.
+
+    The window can be:
+      - Disabled/re-enabled at any time via the toggle button.
+      - Auto-paused between C2 and C3 (totality) by the controller calling
+        ``set_totality_paused(True/False)``.
+    """
+
+    def __init__(self, camera, parent=None):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setMinimumSize(480, 400)
+
+        self._camera = camera
+        self._thread = None
+        self._frame_queue: queue.Queue = queue.Queue(maxsize=1)
+        self._user_enabled: bool = True
+        self._totality_paused: bool = False
+
+        self.setWindowTitle(f"Live View — {camera.name}")
+
+        # Image display
+        self._image_label = QLabel("Waiting for first preview frame…")
+        self._image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._image_label.setMinimumSize(320, 240)
+
+        # Timestamp of last received frame
+        self._timestamp_label = QLabel()
+        self._timestamp_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._timestamp_label.setStyleSheet("color: gray; font-size: 11px;")
+
+        # Status line
+        self._status_label = QLabel()
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Buttons
+        self._toggle_btn = QPushButton("Disable Live View")
+        self._toggle_btn.clicked.connect(self._on_toggle)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self._toggle_btn)
+        btn_layout.addWidget(close_btn)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self._image_label, stretch=1)
+        layout.addWidget(self._timestamp_label)
+        layout.addWidget(self._status_label)
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+
+        # Poll the frame queue every 500 ms on the GUI thread
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(500)
+        self._poll_timer.timeout.connect(self._poll_frame)
+        self._poll_timer.start()
+
+        self._start_thread()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _start_thread(self):
+        if self._thread is not None:
+            self._thread.stop()
+        self._thread = LiveViewThread(
+            camera=self._camera,
+            frame_callback=self._on_frame,
+            interval_s=1.0,
+        )
+        self._thread.start()
+        self._update_status_label()
+
+    def _on_frame(self, jpeg_bytes: bytes):
+        """Called from the LiveViewThread; enqueue (frame, timestamp) for GUI thread."""
+        try:
+            self._frame_queue.put_nowait((jpeg_bytes, datetime.datetime.now()))
+        except queue.Full:
+            pass  # drop the frame; the previous one hasn't been displayed yet
+
+    def _poll_frame(self):
+        """Called on the Qt main thread by the poll timer; updates the image."""
+        try:
+            jpeg_bytes, ts = self._frame_queue.get_nowait()
+        except queue.Empty:
+            return
+        image = QImage.fromData(jpeg_bytes)
+        if image.isNull():
+            return
+        pixmap = QPixmap.fromImage(image)
+        scaled = pixmap.scaled(
+            self._image_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        # Draw blue crosshair at the centre of the scaled pixmap
+        w, h = scaled.width(), scaled.height()
+        painter = QPainter(scaled)
+        pen = QPen(QColor(0, 120, 255))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawLine(0, h // 2, w, h // 2)  # horizontal
+        painter.drawLine(w // 2, 0, w // 2, h)  # vertical
+        painter.end()
+        self._image_label.setPixmap(scaled)
+        self._timestamp_label.setText("Last frame: " + ts.strftime("%Y-%m-%d  %H:%M:%S"))
+
+    def _apply_state(self):
+        """Push the user+totality state into the thread and refresh the button."""
+        if self._thread is None:
+            return
+        if self._user_enabled and not self._totality_paused:
+            self._thread.resume()
+            self._toggle_btn.setText("Disable Live View")
+        else:
+            self._thread.pause()
+            self._toggle_btn.setText("Enable Live View")
+        self._update_status_label()
+
+    def _update_status_label(self):
+        if not self._user_enabled:
+            self._status_label.setText("○  Disabled")
+            self._status_label.setStyleSheet("color: gray;")
+        elif self._totality_paused:
+            self._status_label.setText(
+                "\u23f8  Paused during totality — script has full USB control"
+            )
+            self._status_label.setStyleSheet("color: #856404; background: #FFF3CD; padding: 3px; border-radius: 3px;")
+        else:
+            self._status_label.setText("\u25cf  Active")
+            self._status_label.setStyleSheet("color: green;")
+
+    # ------------------------------------------------------------------
+    # Public API (called by the controller)
+    # ------------------------------------------------------------------
+
+    def set_totality_paused(self, paused: bool):
+        """Auto-pause or auto-resume live view around totality."""
+        if self._totality_paused == paused:
+            return
+        self._totality_paused = paused
+        self._apply_state()
+
+    # ------------------------------------------------------------------
+    # Slots / event handlers
+    # ------------------------------------------------------------------
+
+    def _on_toggle(self):
+        self._user_enabled = not self._user_enabled
+        self._apply_state()
+
+    def closeEvent(self, event):
+        self._poll_timer.stop()
+        if self._thread is not None:
+            self._thread.stop()
+            self._thread = None
+        event.accept()
 
 
 def format_countdown(countdown: datetime.timedelta):
