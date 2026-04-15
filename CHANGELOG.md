@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.8.1] - 2026-04-15
+
+### Added
+- **Live view window**: A new **Live View** toolbar button opens a floating preview window that
+  shows a 1 fps JPEG thumbnail from the connected camera via gphoto2 `capture_preview`.  This
+  lets you verify that the Sun is still centred in the frame and in focus without interrupting
+  the running script.
+
+  Key properties:
+  - Preview frames are fetched in a background thread (`LiveViewThread` in `camera.py`) that
+    tries to acquire the per-camera USB lock with a 50 ms timeout.  When a scheduled shot is
+    firing the frame is silently skipped, so **shot timing is never affected**.
+  - The live view image is transferred as a small JPEG thumbnail only; the camera still saves
+    full-resolution photos directly to its SD card as usual.
+  - **Auto-pause during totality**: the preview pauses automatically 15 seconds
+    before C2 and resumes 15 seconds after C3, giving scheduled shots uncontested
+    USB access during the critical totality window.  A yellow status banner in the
+    window indicates the paused state.
+  - A **"Disable / Enable Live View"** toggle button in the window lets the user turn the
+    preview off or on at any time — before, during, or after totality — without stopping the
+    script.
+  - Closing the main window also stops the live view thread cleanly.
+  - Live view requires a real gphoto2 camera to be connected.  A warning dialog is shown
+    when no camera is available.
+
+### Changed
+- **Wizard C1→C2 partial phase uses C2-relative offsets**: The generated script now
+  references the C1→C2 equispaced partial-phase shots as `C2, -, offset` instead of
+  `C1, +, offset`. Using C2 as the anchor prevents timing conflicts between the partial
+  sequence and the totality sequence: both now count down to the same reference contact,
+  so even if the partial interval is not perfectly calibrated the shots will always stop
+  safely before C2.
+
 ## [1.7.2] - 2026-04-05
 
 ### Fixed

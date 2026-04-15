@@ -1560,8 +1560,8 @@ class SummaryPage(QWizardPage):
                         
                         shutter = format_shutter_speed(exposure)
                         
-                        # Calculate time offset from C1
-                        offset_seconds = (shot_time - c1_time).total_seconds()
+                        # Calculate time offset back from C2 (so partial shots don't clash with totality sequence)
+                        offset_seconds = (c2_time - shot_time).total_seconds()
                         offset_str = f"{int(offset_seconds // 3600)}:{int((offset_seconds % 3600) // 60):02d}:{int(offset_seconds % 60):02d}.0"
                         
                         partial_shots_c1_c2.append((offset_str, shutter, adjusted_iso, shot_time, sun_alt))
@@ -1581,16 +1581,18 @@ class SummaryPage(QWizardPage):
                         shot_count += 1
                         time_str = shot_time.strftime('%H:%M:%S')
                         iso_note = f" (ISO {iso})" if iso != preferred_iso else ""
-                        lines.append(f'take_picture, C1, +, {offset}, {camera_name}, {shutter}, {aperture}, {iso}, "Partial C1-C2 #{shot_count} @ {time_str}, sun {sun_alt:.1f}°{iso_note}"')
+                        lines.append(f'take_picture, C2, -, {offset}, {camera_name}, {shutter}, {aperture}, {iso}, "Partial C1-C2 #{shot_count} @ {time_str}, sun {sun_alt:.1f}°{iso_note}"')
                         
                         # Add sync_cameras periodically if enabled
                         if sync_interval_minutes > 0 and idx > 0:
-                            offset_seconds = (shot_time - c1_time).total_seconds()
+                            c1_offset_seconds = (shot_time - c1_time).total_seconds()
                             # Add sync every N minutes, avoiding conflicts with shots
-                            if offset_seconds % (sync_interval_minutes * 60) < time_interval and offset_seconds > sync_interval_minutes * 60:
-                                sync_offset = int(offset_seconds - 5)  # 5 seconds before the shot
-                                sync_offset_str = f"{int(sync_offset // 3600)}:{int((sync_offset % 3600) // 60):02d}:{int(sync_offset % 60):02d}.0"
-                                lines.append(f'sync_cameras, C1, +, {sync_offset_str}, "Camera sync @ {(c1_time + timedelta(seconds=sync_offset)).strftime("%H:%M:%S")}"')
+                            if c1_offset_seconds % (sync_interval_minutes * 60) < time_interval and c1_offset_seconds > sync_interval_minutes * 60:
+                                # Sync 5 seconds before the shot; express as C2-relative offset
+                                sync_time = shot_time - timedelta(seconds=5)
+                                sync_c2_offset = int((c2_time - sync_time).total_seconds())
+                                sync_offset_str = f"{int(sync_c2_offset // 3600)}:{int((sync_c2_offset % 3600) // 60):02d}:{int(sync_c2_offset % 60):02d}.0"
+                                lines.append(f'sync_cameras, C2, -, {sync_offset_str}, "Camera sync @ {sync_time.strftime("%H:%M:%S")}"')
                     
                     lines.append("")
                     
