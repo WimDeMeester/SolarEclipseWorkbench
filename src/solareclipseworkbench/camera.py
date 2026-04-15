@@ -195,6 +195,43 @@ class VirtualCamera(BaseCamera):
         # mirror gphoto Camera.exit()
         self.disconnect()
 
+    def capture_preview(self) -> bytes:
+        """Return a synthetic 640×480 grey JPEG frame for simulator mode.
+
+        Uses PyQt6 (a hard project dependency) so no extra packages are
+        needed.  The frame contains the current timestamp so the preview
+        window shows visible activity.
+        """
+        import datetime as _dt
+        from PyQt6.QtCore import QBuffer, QIODevice
+        from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPen
+
+        width, height = 640, 480
+        img = QImage(width, height, QImage.Format.Format_RGB888)
+        img.fill(QColor(30, 30, 30))
+
+        painter = QPainter(img)
+        # Crosshair (same style as LiveViewWindow)
+        pen = QPen(QColor(0, 80, 255))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        cx, cy = width // 2, height // 2
+        painter.drawLine(cx, 0, cx, height)
+        painter.drawLine(0, cy, width, cy)
+
+        # Informational text
+        painter.setPen(QPen(QColor(180, 180, 180)))
+        painter.setFont(QFont("monospace", 11))
+        ts = _dt.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        painter.drawText(10, 28, f"VirtualCamera  {ts}")
+        painter.drawText(10, 52, "[ simulator mode — no physical camera ]")
+        painter.end()
+
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.ReadWrite)
+        img.save(buf, "JPEG")
+        return bytes(buf.data())
+
 
 class GPhotoCameraAdapter(BaseCamera):
     """Adapter that wraps a gphoto2 Camera object and exposes a
@@ -691,11 +728,27 @@ class LiveViewThread(threading.Thread):
         return self._paused.is_set()
 
     def run(self):
-        target = self._camera._camera if hasattr(self._camera, '_camera') else self._camera
-        context = gp.gp_context_new()
+        # If the camera provides a capture_preview() method (e.g. VirtualCamera
+        # in simulator mode), use that path — no gphoto2 calls or USB lock needed.
+        _has_virtual_preview = callable(getattr(self._camera, 'capture_preview', None))
+
+        target = None
+        context = None
+        if not _has_virtual_preview:
+            target = self._camera._camera if hasattr(self._camera, '_camera') else self._camera
+            context = gp.gp_context_new()
 
         while not self._stop_event.wait(self._interval_s):
             if self._paused.is_set():
+                continue
+
+            if _has_virtual_preview:
+                try:
+                    jpeg_bytes = self._camera.capture_preview()
+                    if jpeg_bytes:
+                        self._frame_callback(jpeg_bytes)
+                except Exception:
+                    logging.exception('LiveViewThread: virtual preview failed')
                 continue
 
             acquired = False

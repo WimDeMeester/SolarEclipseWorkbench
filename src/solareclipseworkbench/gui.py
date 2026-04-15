@@ -1258,22 +1258,26 @@ class SolarEclipseController(Observer):
             self._live_view_window.raise_()
             return
 
-        # Collect all real gphoto cameras (deduplicated by object identity)
+        # Collect all real gphoto cameras (deduplicated by object identity).
+        # Use cam.name as the display label: when an alias is configured it is
+        # set to the primary alias (i.e. the name used in scripts); when no alias
+        # is configured it falls back to the gphoto2 model name.
         cam_dict = getattr(self.model.camera_overview, 'camera_overview_dict', None) or {}
-        from solareclipseworkbench.camera import GPhotoCameraAdapter
+        from solareclipseworkbench.camera import GPhotoCameraAdapter, VirtualCamera
         seen_ids: set = set()
-        real_cameras: list = []  # list of (name, camera) tuples
-        for name, cam in cam_dict.items():
-            if isinstance(cam, GPhotoCameraAdapter) and id(cam) not in seen_ids:
+        real_cameras: list = []  # list of (display_name, camera) tuples
+        for cam in cam_dict.values():
+            if isinstance(cam, (GPhotoCameraAdapter, VirtualCamera)) and id(cam) not in seen_ids:
                 seen_ids.add(id(cam))
-                real_cameras.append((name, cam))
+                real_cameras.append((cam.name, cam))
 
         if not real_cameras:
             QMessageBox.warning(
                 self.view,
                 "No Camera Connected",
                 "Live view requires a connected camera.\n\n"
-                "Click the Camera(s) button first to detect connected cameras."
+                "Click the Camera(s) button first to detect connected cameras.\n"
+                "In simulator mode the VirtualCamera is also supported."
             )
             return
 
@@ -2045,7 +2049,6 @@ class LiveViewWindow(QWidget):
 
     def __init__(self, camera, parent=None):
         super().__init__(parent, Qt.WindowType.Window)
-        self.setWindowTitle("Live View")
         self.setMinimumSize(480, 400)
 
         self._camera = camera
@@ -2053,6 +2056,8 @@ class LiveViewWindow(QWidget):
         self._frame_queue: queue.Queue = queue.Queue(maxsize=1)
         self._user_enabled: bool = True
         self._totality_paused: bool = False
+
+        self.setWindowTitle(f"Live View — {camera.name}")
 
         # Image display
         self._image_label = QLabel("Waiting for first preview frame…")
