@@ -247,16 +247,38 @@ def _make_usb_gps_worker():
             lon: Optional[float] = None
             alt: float = 0.0
             gps_time: Optional[datetime] = None
+            total_lines = 0
+            nmea_lines = 0
+            parsed_lines = 0
+            last_activity = datetime.now(timezone.utc)
+            last_progress_emit = datetime.now(timezone.utc)
+            last_sentence_type = "none"
+            last_gga_fix_quality = 0
+            last_gga_sats = 0
+            last_rmc_status = "?"
 
             try:
                 start = datetime.now(timezone.utc)
                 while not self._stop_event.is_set():
                     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
                     if elapsed > self._fix_timeout:
+                        if nmea_lines == 0:
+                            detail = (
+                                "No NMEA data received from the serial device. "
+                                "Check device path, baud rate, cable, and permissions."
+                            )
+                        else:
+                            detail = (
+                                f"Received {nmea_lines} NMEA lines "
+                                f"({parsed_lines} parsed). Last sentence: {last_sentence_type}. "
+                                f"GGA quality={last_gga_fix_quality}, sats={last_gga_sats}, "
+                                f"RMC status={last_rmc_status}."
+                            )
                         self.error.emit(
                             "GPS fix timeout.\n\n"
                             f"No valid fix received within {int(self._fix_timeout)} s.\n"
-                            "Make sure the GPS antenna has a clear view of the sky."
+                            "Make sure the GPS antenna has a clear view of the sky.\n"
+                            f"{detail}"
                         )
                         return
 
@@ -266,17 +288,54 @@ def _make_usb_gps_worker():
                         self.error.emit(f"Serial read error:\n{exc}")
                         return
 
+                    total_lines += 1
+                    if raw:
+                        last_activity = datetime.now(timezone.utc)
+
                     line = raw.decode("ascii", errors="replace").strip()
                     if not line.startswith("$"):
+                        if (
+                            datetime.now(timezone.utc) - last_progress_emit
+                        ).total_seconds() >= 2.0:
+                            idle = (
+                                datetime.now(timezone.utc) - last_activity
+                            ).total_seconds()
+                            self.status.emit(
+                                "Waiting for NMEA sentences... "
+                                f"raw lines={total_lines}, idle={idle:.0f}s"
+                            )
+                            last_progress_emit = datetime.now(timezone.utc)
                         continue
+
+                    nmea_lines += 1
 
                     try:
                         msg = pynmea2.parse(line)
                     except pynmea2.ParseError:
+                        if (
+                            datetime.now(timezone.utc) - last_progress_emit
+                        ).total_seconds() >= 2.0:
+                            self.status.emit(
+                                "Receiving GPS data, but parsing is not stable yet... "
+                                f"nmea={nmea_lines}, parsed={parsed_lines}"
+                            )
+                            last_progress_emit = datetime.now(timezone.utc)
                         continue
+
+                    parsed_lines += 1
+                    last_sentence_type = getattr(msg, "sentence_type", "?")
 
                     # GGA sentence: position + altitude + fix quality
                     if isinstance(msg, pynmea2.GGA):
+                        try:
+                            last_gga_fix_quality = int(msg.gps_qual) if msg.gps_qual else 0
+                        except (TypeError, ValueError):
+                            last_gga_fix_quality = 0
+                        try:
+                            last_gga_sats = int(msg.num_sats) if msg.num_sats else 0
+                        except (TypeError, ValueError):
+                            last_gga_sats = 0
+
                         if msg.gps_qual and int(msg.gps_qual) > 0:
                             lat = msg.latitude
                             lon = msg.longitude
@@ -288,11 +347,24 @@ def _make_usb_gps_worker():
 
                     # RMC sentence: position + precise UTC time + valid flag
                     elif isinstance(msg, pynmea2.RMC):
+                        last_rmc_status = msg.status or "?"
                         if msg.status == "A":
                             lat = msg.latitude
                             lon = msg.longitude
                             if msg.datetime:
                                 gps_time = msg.datetime.replace(tzinfo=timezone.utc)
+
+                    if (
+                        datetime.now(timezone.utc) - last_progress_emit
+                    ).total_seconds() >= 2.0:
+                        idle = (datetime.now(timezone.utc) - last_activity).total_seconds()
+                        self.status.emit(
+                            "GPS stream active. "
+                            f"nmea={nmea_lines}, parsed={parsed_lines}, "
+                            f"GGA quality={last_gga_fix_quality}, sats={last_gga_sats}, "
+                            f"RMC={last_rmc_status}, idle={idle:.0f}s"
+                        )
+                        last_progress_emit = datetime.now(timezone.utc)
 
                     # Emit as soon as we have a valid position AND GPS time
                     if lat is not None and lon is not None and gps_time is not None:

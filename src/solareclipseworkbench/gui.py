@@ -1234,23 +1234,16 @@ class SolarEclipseController(Observer):
             logging.exception('Exception while syncing camera time')
         try:
             logging.debug('_on_cameras_ready: checking camera state')
-            self.check_camera_state()
+            warnings = self.model.check_camera_state()
+            if warnings:
+                QMessageBox.warning(
+                    self.view,
+                    "Camera Settings Warning",
+                    "One or more cameras require attention before shooting:\n\n"
+                    + "\n\n".join(f"\u26a0\ufe0f  {w}" for w in warnings)
+                )
         except Exception:
             logging.exception('Exception while checking camera state')
-
-        """ Check whether the focus mode and shooting mode of all connected cameras is set to 'Manual'.
-
-        Shows a warning dialog for any camera that is not in Manual mode.
-        """
-
-        warnings = self.model.check_camera_state()
-        if warnings:
-            QMessageBox.warning(
-                self.view,
-                "Camera Settings Warning",
-                "One or more cameras require attention before shooting:\n\n"
-                + "\n\n".join(f"\u26a0\ufe0f  {w}" for w in warnings)
-            )
 
     def _open_live_view(self):
         """Open (or bring to front) the live view window.
